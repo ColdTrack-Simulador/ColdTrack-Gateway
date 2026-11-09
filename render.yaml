@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: coldtrack-demo
+    runtime: docker
+    branch: codex/coldtrack-web
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: coldtrack-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: COLDTRACK_DB_PATH
+        value: /var/data/coldtrack.db
+      - key: COLDTRACK_REQUIRE_AUTH
+        value: "1"
+      - key: COLDTRACK_FRONTEND_REF
+        sync: false
+      - key: COLDTRACK_DEMO_USER
+        value: demo
+      - key: COLDTRACK_DEMO_PASSWORD_HASH
+        sync: false
+      - key: COLDTRACK_SESSION_SECRET
+        generateValue: true
+      - key: COLDTRACK_INGEST_KEY
+        generateValue: true

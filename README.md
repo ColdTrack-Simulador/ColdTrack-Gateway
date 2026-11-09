@@ -1,5 +1,64 @@
 # ColdTrack Gateway
 
+## Demo web integrada
+
+El dashboard y Flask se sirven desde el mismo origen en el despliegue. En desarrollo,
+Vite reenvía `/api` y `/health` a Flask. El simulador envía valores de sensores para
+`SIM-001`. Flask calcula el diagnóstico y guarda las aperturas y resoluciones en
+`GET /api/devices/SIM-001/alerts`. Arduino conserva su flujo a través del gateway.
+
+### Ejecutar en Windows
+
+En esta carpeta, con Python 3.13 instalado:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe apy.py
+```
+
+En el repositorio hermano `ColdTrack-Gateway_FRONT`, con Node 24:
+
+```powershell
+npm ci
+npm run dev
+```
+
+Abrir `http://localhost:5173`. Para verificar la compilación servida por Flask,
+ejecutar `npm run build` en el frontend y abrir `http://127.0.0.1:5000`.
+La cuenta de demo puede habilitarse localmente con las variables de despliegue y
+`COLDTRACK_ALLOW_HTTP=1` para la cookie en localhost.
+
+### Publicar en Render
+
+1. Publicar las ramas de integración de ambos repositorios en GitHub.
+2. Crear un Blueprint en Render desde la rama de integración de este repositorio.
+   El archivo `render.yaml` prepara un servicio Starter con un disco persistente.
+3. Configurar `COLDTRACK_FRONTEND_REF` con el SHA publicado del frontend.
+   Configurar `COLDTRACK_DEMO_PASSWORD_HASH` con el resultado del siguiente comando.
+   El usuario de demo del Blueprint es `demo`.
+
+   ```powershell
+   .\.venv\Scripts\python.exe -c "from getpass import getpass; from werkzeug.security import generate_password_hash; print(generate_password_hash(getpass()))"
+   ```
+
+4. Render genera `COLDTRACK_SESSION_SECRET` y `COLDTRACK_INGEST_KEY`. Para que
+   Tinkercad envíe al servicio público, configurar en la terminal local que ejecuta
+   `gateway.py` la URL HTTPS completa en `COLDTRACK_API_URL`, terminada en
+   `/api/telemetry`, y la misma clave en `COLDTRACK_INGEST_KEY`. La extensión
+   continúa apuntando a `http://127.0.0.1:8080`.
+5. Probar el enlace HTTPS con una ventana sin sesión y ejecutar **Normal /
+   recuperación → Alta presión → Normal / recuperación** en el simulador.
+   En el detalle de `SIM-001` debe quedar una alerta resuelta. Repetir una
+   lectura de falla dentro de un mismo episodio conserva una sola alerta.
+
+Los umbrales de la demo son presión alta desde 90 %, presión baja hasta 10 %
+y temperatura interior desde 5 °C. Son valores del simulador. Las presiones
+se expresan como porcentajes normalizados. El primer corte procesa una muestra
+por cada envío del formulario.
+
+## Referencia del gateway con Tinkercad
+
 Gateway de integración para el prototipo ColdTrack, encargado de recibir la telemetría generada por un Arduino UNO simulado en Tinkercad [https://www.tinkercad.com/things/2WnGBlR1Mr8-admin-tfi], validarla y reenviarla mediante HTTP a una API local de ColdTrack.
 
 El objetivo de este repositorio es permitir probar el flujo completo sin necesidad de disponer de hardware físico.
@@ -31,7 +90,7 @@ Este repositorio utiliza dos procesos Python:
 | Componente | Archivo | Puerto | Responsabilidad |
 | --- | --- | --- | --- |
 | ColdTrack Gateway | `gateway.py` | `8080` | Recibe la salida del Monitor Serie de Tinkercad y reenvía la telemetría válida a la API |
-| ColdTrack API | `api.py` | `5000` | Recibe la telemetría mediante `POST /api/telemetry` y la mantiene temporalmente en memoria |
+| ColdTrack API | `apy.py` | `5000` | Recibe la telemetría mediante `POST /api/telemetry` y la persiste en SQLite |
 
 La comunicación entre Tinkercad y el Gateway se realiza mediante la extensión **tinkercad-serial-bridge**.
 
@@ -109,7 +168,7 @@ cd C:\ruta\al\repositorio\ColdTrack-Gateway
 La carpeta debería contener, como mínimo:
 ```text
 ColdTrack-Gateway/
-├── api.py
+├── apy.py
 ├── gateway.py
 └── README.md
 ```
@@ -147,7 +206,7 @@ source .venv/bin/activate
 
 Con el entorno virtual activo:
 ```bash
-pip install flask requests
+pip install -r requirements.txt
 ```
 Las dependencias utilizadas actualmente son:
 * **Flask**: servidor HTTP para el Gateway y la API.
@@ -218,13 +277,13 @@ Abrir una **primera terminal** dentro del proyecto y activar el entorno virtual 
 ### Windows
 ```powershell
 .venv\Scripts\Activate.ps1
-python api.py
+python apy.py
 ```
 
 ### Linux/macOS
 ```bash
 source .venv/bin/activate
-python3 api.py
+python3 apy.py
 ```
 
 Debería mostrarse algo similar a:
@@ -278,13 +337,13 @@ ColdTrack API:
 http://127.0.0.1:5000/api/telemetry
 ==========================================
 ```
-El Gateway debe permanecer ejecutándose junto con `api.py`.
+El Gateway debe permanecer ejecutándose junto con `apy.py`.
 
 ---
 
 ## 11. Iniciar la simulación de Tinkercad
 
-Con `api.py` y `gateway.py` ejecutándose:
+Con `apy.py` y `gateway.py` ejecutándose:
 1. Abrir el circuito ColdTrack en Tinkercad.
 2. Abrir el Monitor en serie.
 3. Confirmar que `tinkercad-serial-bridge` esté habilitado.
@@ -301,7 +360,7 @@ La misma extensión consulta periódicamente `GET /cmd`. Esta segunda ruta está
 
 Cuando el Gateway recibe un JSON válido:
 ```text
-Tinkercad → GET /send → gateway.py → validación y deduplicación → POST /api/telemetry → api.py
+Tinkercad → GET /send → gateway.py → parseo y deduplicación → POST /api/telemetry → apy.py
 ```
 
 El Gateway debería mostrar, por ejemplo:
@@ -349,12 +408,12 @@ y la petición `POST /api/telemetry HTTP/1.1 201`.
 
 ## 13. Consultar la última telemetría
 
-Mientras `api.py` permanezca ejecutándose se puede consultar la última lectura de un dispositivo. Para `CT-001`:
+Mientras `apy.py` permanezca ejecutándose se puede consultar la última lectura de un dispositivo. Para `CT-001`:
 ```text
 http://127.0.0.1:5000/api/telemetry/latest/CT-001
 ```
 
-La API devolverá el último paquete almacenado en memoria. Ejemplo:
+La API devolverá el último paquete registrado. Ejemplo:
 ```json
 {
   "deviceId": "CT-001",
@@ -386,7 +445,7 @@ La API devolverá el último paquete almacenado en memoria. Ejemplo:
 ## 15. Prueba recomendada
 
 Para verificar el flujo completo:
-1. Ejecutar `api.py`.
+1. Ejecutar `apy.py`.
 2. Ejecutar `gateway.py`.
 3. Abrir Tinkercad.
 4. Activar `tinkercad-serial-bridge`.

@@ -1,13 +1,14 @@
 import apy
+import pytest
+import database
 from services.telemetry_service import (
     evaluate_device_state,
     should_store_telemetry,
 )
-from storage.database import delete_all_data
-
-
-def setup_function():
-    delete_all_data()
+@pytest.fixture(autouse=True)
+def use_temporary_database(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, "DATABASE_PATH", str(tmp_path / "test.db"))
+    database.init_db()
 
 
 def test_health_endpoint():
@@ -131,3 +132,63 @@ def test_should_store_telemetry_on_recovery_immediately():
     now = "2026-09-28T12:00:09+00:00"
 
     assert should_store_telemetry({"estado": "NORMAL", "diagnostico": "SIN_FALLAS"}, last_reading, now) is True
+
+
+def test_simulator_opens_one_alert_and_resolves_it_immediately():
+    client = apy.app.test_client()
+    endpoint = "/api/simulator/readings"
+    readings = {
+        "tempInterior": -18,
+        "tempCondensador": 36,
+        "tempSuccion": -22,
+        "presionAlta": 60,
+        "presionBaja": 28,
+    }
+    assert client.post(endpoint, json=readings).status_code == 201
+
+    fault = client.post(endpoint, json={**readings, "presionAlta": 96, "diagnostico": "SIN_FALLAS"})
+    assert fault.status_code == 201
+    assert fault.json["diagnostico"] == "FALLA_PRESION_ALTA"
+    assert fault.json["source"] == "simulator"
+
+    repeated = client.post(endpoint, json={**readings, "presionAlta": 97})
+    assert repeated.status_code == 200
+    assert repeated.json["stored"] is False
+    latest = client.get("/api/telemetry/latest/SIM-001").json
+    assert latest["presionAlta"] == 97
+    alerts_url = "/api/devices/SIM-001/alerts"
+    alert, = client.get(alerts_url).json["items"]
+    assert alert["active"] is True
+
+    assert client.post(endpoint, json=readings).status_code == 201
+    resolved, = client.get(alerts_url).json["items"]
+    assert resolved["id"] == alert["id"]
+    assert resolved["active"] is False
+    assert resolved["resolvedAt"]
+    assert client.get("/api/telemetry?deviceId=SIM-001").json["count"] == 3
+
+
+def test_protected_app_separates_demo_session_from_gateway_credentials(monkeypatch):
+    from werkzeug.security import generate_password_hash
+
+    monkeypatch.setattr(apy, "protected", True)
+    monkeypatch.setattr(apy, "username", "demo")
+    monkeypatch.setattr(apy, "password_hash", generate_password_hash("local-test-password"))
+    monkeypatch.setattr(apy, "ingest_key", "local-test-key")
+    monkeypatch.setitem(apy.app.config, "SECRET_KEY", "local-test-session")
+    client = apy.app.test_client()
+    record = {"deviceId": "CT-001", "estado": "REFRIGERANDO", "diagnostico": "SIN_FALLAS"}
+
+    assert client.get("/api/devices").status_code == 401
+    assert client.post("/api/telemetry", json=record).status_code == 401
+    assert client.post("/api/session", json={"username": "demo", "password": "wrong"}).status_code == 401
+    response = client.post("/api/session", json={"username": "demo", "password": "local-test-password"})
+    assert response.json["authenticated"] is True
+    assert client.get("/api/devices").status_code == 200
+    assert client.post("/api/telemetry", json=record).status_code == 401
+    assert client.post(
+        "/api/telemetry", json=record, headers={"Authorization": "Bearer local-test-key"}
+    ).status_code == 201
+    assert client.get("/api/telemetry/latest/CT-001").json["state"] == "normal"
+    assert client.delete("/api/session").json["authenticated"] is False
+    assert client.get("/api/devices").status_code == 401

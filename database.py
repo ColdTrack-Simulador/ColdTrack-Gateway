@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from typing import Any
+from typing import Any, Callable
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -11,7 +11,7 @@ DATABASE_PATH = os.environ.get("COLDTRACK_DB_PATH", os.path.join(DATA_DIR, "cold
 
 
 def _connect() -> sqlite3.Connection:
-    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(DATABASE_PATH)), exist_ok=True)
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
@@ -200,6 +200,7 @@ def init_db() -> None:
 
     _ensure_column("devices", "status", "status TEXT NOT NULL DEFAULT 'offline'")
     _ensure_column("devices", "last_seen", "last_seen TEXT")
+    _ensure_column("devices", "latest_payload", "latest_payload TEXT")
     _ensure_column("devices", "name", "name TEXT")
     _ensure_column("devices", "updated_at", "updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z'")
     _ensure_column("telemetry_readings", "uptime_ms", "uptime_ms INTEGER")
@@ -246,23 +247,55 @@ def _row_to_record(row: sqlite3.Row) -> dict[str, Any]:
     return payload
 
 
-def save_telemetry(record: dict[str, Any]) -> dict[str, Any]:
+def save_telemetry(
+    record: dict[str, Any],
+    should_store: Callable[[dict[str, Any], dict[str, Any] | None], bool],
+) -> dict[str, Any]:
     device_id = record["deviceId"]
     received_at = record["receivedAt"]
     raw_payload = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
 
     with _connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        previous = connection.execute(
+            "SELECT latest_payload FROM devices WHERE device_id = ?", (device_id,)
+        ).fetchone()
+        if previous and previous["latest_payload"]:
+            previous_record = json.loads(previous["latest_payload"])
+            if previous_record["receivedAt"] > received_at:
+                return {**record, "stored": False}
+
         connection.execute(
             """
-            INSERT INTO devices(device_id, status, last_seen, updated_at)
-            VALUES (?, 'online', ?, datetime('now'))
+            INSERT INTO devices(device_id, status, last_seen, updated_at, latest_payload)
+            VALUES (?, 'online', ?, datetime('now'), ?)
             ON CONFLICT(device_id) DO UPDATE SET
                 status = excluded.status,
                 last_seen = excluded.last_seen,
-                updated_at = datetime('now')
+                updated_at = datetime('now'),
+                latest_payload = excluded.latest_payload
             """,
-            (device_id, received_at),
+            (device_id, received_at, raw_payload),
         )
+
+        alert_type = record["diagnostico"] if record["state"] == "alert" else None
+        connection.execute(
+            """UPDATE alerts SET is_active = 0, resolved_at = ?
+               WHERE device_id = ? AND is_active = 1 AND (? IS NULL OR alert_type <> ?)""",
+            (received_at, device_id, alert_type, alert_type),
+        )
+        if alert_type:
+            connection.execute(
+                """INSERT INTO alerts(device_id, alert_type, severity, title, created_at)
+                   SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (
+                       SELECT 1 FROM alerts WHERE device_id = ? AND alert_type = ? AND is_active = 1
+                   )""",
+                (device_id, alert_type, record["severity"], alert_type, received_at, device_id, alert_type),
+            )
+
+        last_row = _latest_history_row(connection, device_id)
+        if not should_store(record, _row_to_record(last_row) if last_row else None):
+            return {**record, "stored": False}
 
         cursor = connection.execute(
             """
@@ -314,7 +347,12 @@ def save_telemetry(record: dict[str, Any]) -> dict[str, Any]:
             (cursor.lastrowid,),
         ).fetchone()
 
-    return _row_to_record(created_row)
+        saved = _row_to_record(created_row)
+        connection.execute(
+            "UPDATE devices SET latest_payload = ? WHERE device_id = ?",
+            (json.dumps(saved, ensure_ascii=False), device_id),
+        )
+        return {**saved, "stored": True}
 
 
 def list_telemetry(device_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
@@ -334,23 +372,23 @@ def list_telemetry(device_id: str | None = None, limit: int = 50) -> list[dict[s
     return [_row_to_record(row) for row in rows]
 
 
+def _latest_history_row(connection: sqlite3.Connection, device_id: str) -> sqlite3.Row | None:
+    return connection.execute(
+        """SELECT * FROM telemetry_readings WHERE device_id = ?
+           ORDER BY received_at DESC, id DESC LIMIT 1""",
+        (device_id,),
+    ).fetchone()
+
+
 def get_latest_by_device(device_id: str) -> dict[str, Any] | None:
     with _connect() as connection:
-        row = connection.execute(
-            """
-            SELECT *
-            FROM telemetry_readings
-            WHERE device_id = ?
-            ORDER BY received_at DESC
-            LIMIT 1
-            """,
-            (device_id,),
+        latest = connection.execute(
+            "SELECT latest_payload FROM devices WHERE device_id = ?", (device_id,)
         ).fetchone()
-
-    if row is None:
-        return None
-
-    return _row_to_record(row)
+        if latest and latest["latest_payload"]:
+            return json.loads(latest["latest_payload"])
+        row = _latest_history_row(connection, device_id)
+        return _row_to_record(row) if row else None
 
 
 def list_devices() -> list[dict[str, Any]]:
@@ -358,7 +396,7 @@ def list_devices() -> list[dict[str, Any]]:
         rows = connection.execute(
             """
             SELECT d.device_id, d.name, d.status, d.last_seen,
-                   t.estado, t.diagnostico, t.received_at
+                   COALESCE(d.latest_payload, t.raw_payload, '{}') AS latest_payload
             FROM devices d
             LEFT JOIN telemetry_readings t
                 ON t.id = (
@@ -378,12 +416,26 @@ def list_devices() -> list[dict[str, Any]]:
             "name": row["name"],
             "status": row["status"],
             "lastSeen": row["last_seen"],
-            "estado": row["estado"],
-            "diagnostico": row["diagnostico"],
-            "receivedAt": row["received_at"],
+            "estado": latest.get("estado"),
+            "diagnostico": latest.get("diagnostico"),
+            "state": latest.get("state"),
+            "source": latest.get("source"),
+            "receivedAt": latest.get("receivedAt"),
         }
         for row in rows
+        for latest in [json.loads(row["latest_payload"])]
     ]
+
+
+def list_alerts(device_id: str) -> list[dict[str, Any]]:
+    with _connect() as connection:
+        rows = connection.execute(
+            """SELECT id, alert_type AS type, severity, is_active AS active,
+                      created_at AS openedAt, resolved_at AS resolvedAt
+               FROM alerts WHERE device_id = ? ORDER BY id DESC LIMIT 50""",
+            (device_id,),
+        ).fetchall()
+        return [{**dict(row), "active": bool(row["active"])} for row in rows]
 
 
 def add_event(

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from flask import Blueprint, jsonify, request
+from database import list_alerts
 
 from services.telemetry_service import (
     create_telemetry,
     fetch_devices,
     fetch_latest_telemetry,
     fetch_telemetry,
+    simulate_telemetry,
 )
 
 telemetry_bp = Blueprint("telemetry_bp", __name__)
@@ -102,8 +104,25 @@ def recibir_telemetria():
             "deviceId": persistido["deviceId"],
             "receivedAt": persistido["receivedAt"],
             "id": persistido.get("id"),
+            "stored": persistido["stored"],
         }
-    ), 201
+    ), 201 if persistido["stored"] else 200
+
+
+@telemetry_bp.post("/api/simulator/readings")
+def simular_telemetria():
+    if not request.is_json:
+        return _error_response("El cuerpo debe ser JSON.", 415)
+    try:
+        record = simulate_telemetry(request.get_json(silent=True))
+    except ValueError as exc:
+        return _error_response(str(exc), 400)
+    return jsonify(record), 201 if record["stored"] else 200
+
+
+@telemetry_bp.get("/api/devices/<device_id>/alerts")
+def alertas_dispositivo(device_id):
+    return jsonify({"items": list_alerts(device_id)})
 
 
 @telemetry_bp.get("/api/telemetry")
@@ -138,7 +157,7 @@ def listar_telemetria():
     if limit <= 0:
         return _error_response("El parámetro 'limit' debe ser mayor que 0.", 400)
 
-    registros = fetch_telemetry(device_id=device_id, limit=limit)
+    registros = fetch_telemetry(device_id=device_id, limit=min(limit, 500))
     return jsonify({"count": len(registros), "items": registros}), 200
 
 

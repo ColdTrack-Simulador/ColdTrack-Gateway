@@ -1,6 +1,7 @@
 import json
 import logging
-from datetime import datetime, timezone
+import os
+from threading import Lock
 
 import requests
 from flask import Flask, request
@@ -8,56 +9,12 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
-NORMAL_INTERVAL_SECONDS = 300
-ALERT_INTERVAL_SECONDS = 5
-
-
-def get_device_state(telemetria):
-    estado = str(telemetria.get("estado", "")).strip().upper()
-    diagnostico = str(telemetria.get("diagnostico", "")).strip().upper()
-
-    if estado in {"NORMAL"} and diagnostico in {"SIN_FALLAS"}:
-        return "normal"
-
-    if estado in {"ADVERT", "CRITICO"}:
-        return "alert"
-
-    if diagnostico not in {"", "SIN_FALLAS"}:
-        return "alert"
-
-    return "normal"
-
-
-def should_forward_telemetry(device_id, telemetria, now=None):
-    if now is None:
-        now = datetime.now(timezone.utc)
-
-    current_state = get_device_state(telemetria)
-    previous_state = ultimo_estado.get(device_id)
-    last_sent_at = ultimo_envio.get(device_id)
-
-    if last_sent_at is None:
-        return True
-
-    if previous_state != current_state:
-        return True
-
-    if previous_state == "alert" and current_state == "alert":
-        return (now - last_sent_at).total_seconds() >= ALERT_INTERVAL_SECONDS
-
-    if current_state == "normal":
-        return (now - last_sent_at).total_seconds() >= NORMAL_INTERVAL_SECONDS
-
-    return True
-
-
 # -------------------------------------------
 # Configuración
 # -------------------------------------------
 
-COLDTRACK_API_URL = (
-    "http://127.0.0.1:5000/api/telemetry"
-)
+COLDTRACK_API_URL = os.environ.get("COLDTRACK_API_URL", "http://127.0.0.1:5000/api/telemetry")
+COLDTRACK_INGEST_KEY = os.environ.get("COLDTRACK_INGEST_KEY")
 
 
 # Evitar llenar la consola con cada petición
@@ -69,8 +26,7 @@ logging.getLogger(
 
 # Última lectura procesada por dispositivo.
 ultimo_uptime = {}
-ultimo_estado = {}
-ultimo_envio = {}
+envio_lock = Lock()
 
 
 # =====================================================
@@ -128,10 +84,9 @@ def recibir_telemetria():
     # Identificar paquete
     # -------------------------------------------
 
-    device_id = telemetria.get(
-        "deviceId",
-        "DESCONOCIDO"
-    )
+    device_id = telemetria.get("deviceId")
+    if not isinstance(device_id, str) or not device_id.strip():
+        return "Falta el identificador del dispositivo", 400
 
     uptime = telemetria.get(
         "uptimeMs"
@@ -142,41 +97,12 @@ def recibir_telemetria():
     # Evitar duplicados
     # -------------------------------------------
 
-    if (
-        uptime is not None
-        and ultimo_uptime.get(device_id) == uptime
-    ):
-        return "", 200
-
-
-    ultimo_uptime[device_id] = uptime
-
-    current_state = get_device_state(telemetria)
-    if not should_forward_telemetry(device_id, telemetria):
-        ultimo_estado[device_id] = current_state
-        return "OK", 200
-
-    ultimo_estado[device_id] = current_state
-    ultimo_envio[device_id] = datetime.now(timezone.utc)
-
-    # -------------------------------------------
-    # Mostrar recepción local
-    # -------------------------------------------
-
-    mostrar_telemetria(
-        telemetria
-    )
-
-
-    # -------------------------------------------
-    # Reenviar a ColdTrack API
-    # -------------------------------------------
-
-    enviar_a_api(
-        telemetria
-    )
-
-
+    with envio_lock:
+        if uptime is not None and ultimo_uptime.get(device_id) == uptime:
+            return "", 200
+        if not enviar_a_api(telemetria):
+            return "No se pudo entregar la telemetría", 502
+        ultimo_uptime[device_id] = uptime
     return "OK", 200
 
 
@@ -201,67 +127,15 @@ def consultar_comandos():
 # =====================================================
 
 def enviar_a_api(telemetria):
-
+    headers = {"Authorization": f"Bearer {COLDTRACK_INGEST_KEY}"} if COLDTRACK_INGEST_KEY else {}
     try:
-
-        respuesta = requests.post(
-            COLDTRACK_API_URL,
-            json=telemetria,
-            timeout=5
-        )
-
-
-        if respuesta.ok:
-
-            print(
-                "[API] Telemetria enviada "
-                f"correctamente "
-                f"({respuesta.status_code})"
-            )
-
-        else:
-
-            print(
-                "[API] La API rechazo la "
-                "telemetria."
-            )
-
-            print(
-                f"[API] HTTP "
-                f"{respuesta.status_code}"
-            )
-
-            print(
-                f"[API] {respuesta.text}"
-            )
-
-
-    except requests.ConnectionError:
-
-        print(
-            "[API] No se pudo conectar con "
-            "ColdTrack API."
-        )
-
-        print(
-            "[API] Verifique que api.py "
-            "este ejecutandose."
-        )
-
-
-    except requests.Timeout:
-
-        print(
-            "[API] Tiempo de espera agotado."
-        )
-
-
+        respuesta = requests.post(COLDTRACK_API_URL, json=telemetria, headers=headers, timeout=5)
+        respuesta.raise_for_status()
     except requests.RequestException as error:
-
-        print(
-            f"[API] Error HTTP: {error}"
-        )
-
+        app.logger.warning("Falló el envío a ColdTrack: %s", error)
+        return False
+    mostrar_telemetria(telemetria)
+    return True
 
 # =====================================================
 # CONSOLA
