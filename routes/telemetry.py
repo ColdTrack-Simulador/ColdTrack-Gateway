@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request
-from database import list_alerts
+from flask import Blueprint, current_app, g, jsonify, request
 
-from services.telemetry_service import (
-    create_telemetry,
-    fetch_devices,
-    fetch_latest_telemetry,
-    fetch_telemetry,
-    simulate_telemetry,
-)
+from coldtrack.application import UseCaseError
 
 telemetry_bp = Blueprint("telemetry_bp", __name__)
+
+
+def telemetry():
+    return current_app.extensions["coldtrack_telemetry"]
 
 
 def _error_response(message: str, status_code: int, **extra):
@@ -92,7 +89,7 @@ def recibir_telemetria():
 
     try:
         payload = request.get_json(silent=True)
-        persistido = create_telemetry(payload)
+        persistido = telemetry().create_telemetry(payload)
     except ValueError as exc:
         if len(exc.args) > 1 and isinstance(exc.args[1], list):
             return _error_response(str(exc.args[0]), 400, campos=exc.args[1])
@@ -105,6 +102,7 @@ def recibir_telemetria():
             "receivedAt": persistido["receivedAt"],
             "id": persistido.get("id"),
             "stored": persistido["stored"],
+            "samplingActive": persistido.get("samplingActive", True),
         }
     ), 201 if persistido["stored"] else 200
 
@@ -114,7 +112,17 @@ def simular_telemetria():
     if not request.is_json:
         return _error_response("El cuerpo debe ser JSON.", 415)
     try:
-        record = simulate_telemetry(request.get_json(silent=True))
+        payload = request.get_json(silent=True)
+        principal = g.get("account")
+        device_id = "SIM-001"
+        if principal:
+            device_id = payload.get("deviceId") if isinstance(payload, dict) else None
+            if not isinstance(device_id, str):
+                return _error_response("Seleccioná un equipo registrado.", 400)
+            current_app.extensions["coldtrack_operations"].owned_device(principal["id"], device_id)
+        record = telemetry().simulate_telemetry(payload, device_id)
+    except UseCaseError as exc:
+        return _error_response(str(exc), exc.status)
     except ValueError as exc:
         return _error_response(str(exc), 400)
     return jsonify(record), 201 if record["stored"] else 200
@@ -122,7 +130,7 @@ def simular_telemetria():
 
 @telemetry_bp.get("/api/devices/<device_id>/alerts")
 def alertas_dispositivo(device_id):
-    return jsonify({"items": list_alerts(device_id)})
+    return jsonify({"items": telemetry().fetch_alerts(device_id)})
 
 
 @telemetry_bp.get("/api/telemetry")
@@ -157,7 +165,7 @@ def listar_telemetria():
     if limit <= 0:
         return _error_response("El parámetro 'limit' debe ser mayor que 0.", 400)
 
-    registros = fetch_telemetry(device_id=device_id, limit=min(limit, 500))
+    registros = telemetry().fetch_telemetry(device_id=device_id, limit=min(limit, 500), owner_id=(g.get("account") or {}).get("id"))
     return jsonify({"count": len(registros), "items": registros}), 200
 
 
@@ -172,7 +180,7 @@ def listar_dispositivos():
       200:
         description: Device list
     """
-    dispositivos = fetch_devices()
+    dispositivos = telemetry().fetch_devices(owner_id=(g.get("account") or {}).get("id"))
     return jsonify({"count": len(dispositivos), "devices": dispositivos}), 200
 
 
@@ -194,7 +202,7 @@ def ultima_telemetria(device_id):
       404:
         description: No telemetry exists for the requested device
     """
-    lectura = fetch_latest_telemetry(device_id)
+    lectura = telemetry().fetch_latest_telemetry(device_id)
     if lectura is None:
         return _error_response("No existen lecturas para el dispositivo.", 404, deviceId=device_id)
     return jsonify(lectura), 200

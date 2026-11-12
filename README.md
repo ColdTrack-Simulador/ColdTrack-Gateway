@@ -1,5 +1,71 @@
 # ColdTrack Gateway
 
+## Cuentas, sensores y atención técnica
+
+Las reglas de diagnóstico y horarios están en `coldtrack/domain.py`.
+Los casos de uso están en `coldtrack/application.py` y
+`services/telemetry_service.py`. Flask adapta HTTP, y SQLite y SMTP implementan
+la persistencia y el envío. `apy.py` conecta las capas. Las tablas nuevas se
+crean al arrancar en la base configurada por `COLDTRACK_DB_PATH`.
+
+| Método y ruta | Uso |
+| --- | --- |
+| `POST /api/registration` | Enviar `email`, `name`, `password`, rol `owner` o `technician` y `phone` opcional. Guardar el `registrationId` de la respuesta. |
+| `POST /api/registration/verify` | Confirmar con `email`, `registrationId` y el `code` de seis dígitos recibido por correo. Vence a los 10 minutos. |
+| `POST /api/session` | Ingresar con el correo en `username` y la contraseña en `password`. |
+| `POST /api/devices` | Como propietario, enviar `name`. Guardar el `deviceId` y el `gatewayToken` que se entrega al crear. |
+| `GET /api/devices/{id}/policy` | Consultar la política como propietario o con el token Bearer del equipo. |
+| `PATCH /api/devices/{id}/policy` | Cambiar `enabled`, `channels`, `schedule` o `limits` como propietario. |
+| `GET /api/technicians` | Consultar el directorio de técnicos registrados. |
+| `PUT /api/technician-contacts/{id}` y `GET /api/technician-contacts` | Guardar y consultar contactos con correo y teléfono. |
+| `POST /api/reviews` | Crear una solicitud con `alertId`, `technicianId` guardado y `notes` opcional. |
+| `GET /api/reviews` | Consultar las solicitudes propias como propietario o técnico asignado. |
+
+Ejemplo de política para capturar solo temperatura interior y presión alta
+los lunes, de 09:00 a 17:00 UTC:
+
+```json
+{
+  "enabled": true,
+  "channels": ["tempInterior", "presionAlta"],
+  "schedule": [{"day": 0, "start": "09:00", "end": "17:00"}],
+  "limits": {"tempInterior": {"max": 5}, "presionAlta": {"max": 90}}
+}
+```
+
+Los días van de 0 (lunes) a 6 (domingo). Una lista de horarios vacía permite
+captura permanente y `enabled: false` la pausa. Una ventana puede cruzar la
+medianoche. `limits` reemplaza el conjunto anterior. Los valores iniciales
+son de demostración, con temperaturas en °C y presiones normalizadas en %.
+La API aplica la política al aceptar telemetría. El cliente del equipo puede
+consultar el estado efectivo en `samplingActive`. Para un equipo registrado,
+configurá `COLDTRACK_DEVICE_ID` y su token en `COLDTRACK_INGEST_KEY` en el
+gateway. El simulador acepta `deviceId` en el cuerpo para un equipo propio.
+
+El diagnóstico abre una alerta por condición y también detecta combinaciones,
+como presión alta junto a temperatura elevada del condensador. Cada apertura
+genera un correo al propietario. La solicitud de revisión queda visible para
+el técnico y genera otro correo con el equipo, la descripción y las notas.
+
+### Correo
+
+Habilitá `COLDTRACK_REGISTRATION_ENABLED=1` con una
+`COLDTRACK_SESSION_SECRET` configurada y un proceso de correo activo.
+Para SMTP con STARTTLS, configurá `COLDTRACK_SMTP_HOST`,
+`COLDTRACK_SMTP_PORT` (587 por defecto), `COLDTRACK_SMTP_USERNAME`,
+`COLDTRACK_SMTP_PASSWORD` y, si corresponde, `COLDTRACK_SMTP_FROM`.
+Ejecutá periódicamente `python -m flask --app apy drain-mail` desde un
+proceso con acceso a la misma base. Los avisos quedan en SQLite hasta su
+entrega y los fallos se reintentan.
+
+En un hosting con restricciones de SMTP, un n8n externo puede ejecutar
+`POST /api/mail/claim`, usar su nodo SMTP y confirmar con
+`POST /api/mail/{id}/ack` y el JSON `{"lease":"…","sent":true}`.
+Las dos rutas usan Bearer con `COLDTRACK_MAIL_WORKER_KEY`, independiente
+de las claves del gateway. `204` al reclamar indica que no hay correos
+disponibles. Confirmá el envío dentro de dos minutos o indicá `sent:false`
+para reintentar. Usá la credencial de n8n para guardar la clave del worker.
+
 ## Demo web integrada
 
 El dashboard y Flask se sirven desde el mismo origen en el despliegue. En desarrollo,

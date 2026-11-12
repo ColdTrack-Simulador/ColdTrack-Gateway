@@ -5,6 +5,9 @@ import os
 import sqlite3
 from typing import Any, Callable
 
+from coldtrack.infrastructure import apply_managed_policy, initialize, sync_managed_alerts
+
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DATABASE_PATH = os.environ.get("COLDTRACK_DB_PATH", os.path.join(DATA_DIR, "coldtrack.db"))
@@ -123,6 +126,7 @@ def _migrate_legacy_telemetry_table() -> None:
 
 def init_db() -> None:
     with _connect() as connection:
+        initialize(connection)
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS devices (
@@ -253,10 +257,11 @@ def save_telemetry(
 ) -> dict[str, Any]:
     device_id = record["deviceId"]
     received_at = record["receivedAt"]
-    raw_payload = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
-
     with _connect() as connection:
         connection.execute("BEGIN IMMEDIATE")
+        if not apply_managed_policy(connection, record):
+            return {**record, "stored": False}
+        raw_payload = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
         previous = connection.execute(
             "SELECT latest_payload FROM devices WHERE device_id = ?", (device_id,)
         ).fetchone()
@@ -278,20 +283,23 @@ def save_telemetry(
             (device_id, received_at, raw_payload),
         )
 
-        alert_type = record["diagnostico"] if record["state"] == "alert" else None
-        connection.execute(
-            """UPDATE alerts SET is_active = 0, resolved_at = ?
-               WHERE device_id = ? AND is_active = 1 AND (? IS NULL OR alert_type <> ?)""",
-            (received_at, device_id, alert_type, alert_type),
-        )
-        if alert_type:
+        if "diagnosticFindings" in record:
+            sync_managed_alerts(connection, record)
+        else:
+            alert_type = record["diagnostico"] if record["state"] == "alert" else None
             connection.execute(
-                """INSERT INTO alerts(device_id, alert_type, severity, title, created_at)
-                   SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (
-                       SELECT 1 FROM alerts WHERE device_id = ? AND alert_type = ? AND is_active = 1
-                   )""",
-                (device_id, alert_type, record["severity"], alert_type, received_at, device_id, alert_type),
+                """UPDATE alerts SET is_active = 0, resolved_at = ?
+                   WHERE device_id = ? AND is_active = 1 AND (? IS NULL OR alert_type <> ?)""",
+                (received_at, device_id, alert_type, alert_type),
             )
+            if alert_type:
+                connection.execute(
+                    """INSERT INTO alerts(device_id, alert_type, severity, title, created_at)
+                       SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (
+                           SELECT 1 FROM alerts WHERE device_id = ? AND alert_type = ? AND is_active = 1
+                       )""",
+                    (device_id, alert_type, record["severity"], alert_type, received_at, device_id, alert_type),
+                )
 
         last_row = _latest_history_row(connection, device_id)
         if not should_store(record, _row_to_record(last_row) if last_row else None):
@@ -355,15 +363,14 @@ def save_telemetry(
         return {**saved, "stored": True}
 
 
-def list_telemetry(device_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-    query = "SELECT * FROM telemetry_readings"
-    params: list[Any] = []
-
+def list_telemetry(device_id: str | None = None, limit: int = 50, owner_id: int | None = None) -> list[dict[str, Any]]:
+    query = """SELECT t.* FROM telemetry_readings t LEFT JOIN ct_managed_devices m ON m.device_id=t.device_id
+               WHERE m.owner_id IS ?"""
+    params: list[Any] = [owner_id]
     if device_id:
-        query += " WHERE device_id = ?"
+        query += " AND t.device_id = ?"
         params.append(device_id)
-
-    query += " ORDER BY received_at DESC LIMIT ?"
+    query += " ORDER BY t.received_at DESC LIMIT ?"
     params.append(limit)
 
     with _connect() as connection:
@@ -391,13 +398,14 @@ def get_latest_by_device(device_id: str) -> dict[str, Any] | None:
         return _row_to_record(row) if row else None
 
 
-def list_devices() -> list[dict[str, Any]]:
+def list_devices(owner_id: int | None = None) -> list[dict[str, Any]]:
     with _connect() as connection:
         rows = connection.execute(
             """
             SELECT d.device_id, d.name, d.status, d.last_seen,
                    COALESCE(d.latest_payload, t.raw_payload, '{}') AS latest_payload
             FROM devices d
+            LEFT JOIN ct_managed_devices m ON m.device_id=d.device_id
             LEFT JOIN telemetry_readings t
                 ON t.id = (
                     SELECT t2.id
@@ -406,8 +414,9 @@ def list_devices() -> list[dict[str, Any]]:
                     ORDER BY t2.received_at DESC
                     LIMIT 1
                 )
+            WHERE m.owner_id IS ?
             ORDER BY d.device_id ASC
-            """
+            """, (owner_id,)
         ).fetchall()
 
     return [
@@ -430,7 +439,7 @@ def list_devices() -> list[dict[str, Any]]:
 def list_alerts(device_id: str) -> list[dict[str, Any]]:
     with _connect() as connection:
         rows = connection.execute(
-            """SELECT id, alert_type AS type, severity, is_active AS active,
+            """SELECT id, alert_type AS type, severity, message AS description, is_active AS active,
                       created_at AS openedAt, resolved_at AS resolvedAt
                FROM alerts WHERE device_id = ? ORDER BY id DESC LIMIT 50""",
             (device_id,),
@@ -509,6 +518,8 @@ def delete_all_data() -> None:
     init_db()
     with _connect() as connection:
         connection.execute("DELETE FROM events")
+        connection.execute("DELETE FROM ct_reviews")
+        connection.execute("DELETE FROM ct_managed_devices")
         connection.execute("DELETE FROM alerts")
         connection.execute("DELETE FROM telemetry_readings")
         connection.execute("DELETE FROM devices")

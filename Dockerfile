@@ -20,5 +20,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY apy.py database.py ./
 COPY routes ./routes
 COPY services ./services
+COPY coldtrack ./coldtrack
 COPY --from=frontend /frontend/dist ./web
 CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 1 --threads 2 apy:app"]
