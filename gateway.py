@@ -15,6 +15,7 @@ app = Flask(__name__)
 
 COLDTRACK_API_URL = os.environ.get("COLDTRACK_API_URL", "http://127.0.0.1:5000/api/telemetry")
 COLDTRACK_INGEST_KEY = os.environ.get("COLDTRACK_INGEST_KEY")
+COLDTRACK_DEVICE_ID = os.environ.get("COLDTRACK_DEVICE_ID")
 
 
 # Evitar llenar la consola con cada petición
@@ -84,6 +85,8 @@ def recibir_telemetria():
     # Identificar paquete
     # -------------------------------------------
 
+    if COLDTRACK_DEVICE_ID:
+        telemetria["deviceId"] = COLDTRACK_DEVICE_ID
     device_id = telemetria.get("deviceId")
     if not isinstance(device_id, str) or not device_id.strip():
         return "Falta el identificador del dispositivo", 400

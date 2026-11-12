@@ -3,14 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from math import isfinite
 from re import fullmatch
-from typing import Any
-
-from database import (
-    get_latest_by_device,
-    list_devices,
-    list_telemetry,
-    save_telemetry,
-)
+from typing import Any, Protocol
 
 REQUIRED_FIELDS = [
     "deviceId",
@@ -151,83 +144,101 @@ def validate_telemetry_payload(payload: Any) -> dict[str, Any]:
     }
 
 
-def create_telemetry(payload: Any) -> dict[str, Any]:
-    record = validate_telemetry_payload(payload)
-    if record["deviceId"] == "SIM-001":
-        raise ValueError("SIM-001 está reservado para el simulador.")
-    for key in ("proteccionAlta", "proteccionBaja", "ordenParoCompresor"):
-        if key in record:
-            if type(record[key]) not in (bool, int) or record[key] not in (0, 1):
-                raise ValueError(f"El campo '{key}' debe ser booleano.")
-            record[key] = bool(record[key])
-    record["reportedDiagnosis"] = record["diagnostico"]
-    record["source"] = "gateway"
-    if evaluate_device_state(record) == "alert" and _normalize_text(record["diagnostico"]) in NORMAL_STATES:
-        record["diagnostico"] = "PROTECCION_ACTIVA" if any(
-            record.get(key) for key in ("proteccionAlta", "proteccionBaja", "ordenParoCompresor")
-        ) else record["estado"].strip().upper()
-    return _record_telemetry(record)
+class TelemetryStore(Protocol):
+    def save_telemetry(self, record, should_store): ...
+    def list_telemetry(self, *, device_id, limit, owner_id): ...
+    def list_devices(self, *, owner_id): ...
+    def get_latest_by_device(self, device_id): ...
+    def list_alerts(self, device_id): ...
 
 
-def _record_telemetry(record: dict[str, Any]) -> dict[str, Any]:
-    record["state"] = evaluate_device_state(record)
-    record["severity"] = "critical" if record["state"] == "alert" else "normal"
-    return save_telemetry(record, should_store_telemetry)
+class TelemetryService:
+    def __init__(self, store: TelemetryStore):
+        self.store = store
+
+    def fetch_alerts(self, device_id):
+        return self.store.list_alerts(device_id)
+
+    def create_telemetry(self, payload: Any) -> dict[str, Any]:
+        record = validate_telemetry_payload(payload)
+        record.pop("diagnosticFindings", None)
+        record.pop("samplingActive", None)
+        if record["deviceId"] == "SIM-001":
+            raise ValueError("SIM-001 está reservado para el simulador.")
+        for key in ("proteccionAlta", "proteccionBaja", "ordenParoCompresor"):
+            if key in record:
+                if type(record[key]) not in (bool, int) or record[key] not in (0, 1):
+                    raise ValueError(f"El campo '{key}' debe ser booleano.")
+                record[key] = bool(record[key])
+        record["reportedDiagnosis"] = record["diagnostico"]
+        record["source"] = "gateway"
+        if evaluate_device_state(record) == "alert" and _normalize_text(record["diagnostico"]) in NORMAL_STATES:
+            record["diagnostico"] = "PROTECCION_ACTIVA" if any(
+                record.get(key) for key in ("proteccionAlta", "proteccionBaja", "ordenParoCompresor")
+            ) else record["estado"].strip().upper()
+        return self._record_telemetry(record)
 
 
-def simulate_telemetry(payload: Any) -> dict[str, Any]:
-    if not isinstance(payload, dict):
-        raise ValueError("El cuerpo debe ser un objeto JSON.")
-    readings = {}
-    ranges = {
-        "tempInterior": (-60, 80), "tempCondensador": (-60, 120), "tempSuccion": (-80, 80),
-        "presionAlta": (0, 100), "presionBaja": (0, 100),
-    }
-    for field, (minimum, maximum) in ranges.items():
-        value = payload.get(field)
-        if type(value) not in (int, float) or not minimum <= value <= maximum or not isfinite(value):
-            raise ValueError(f"{field} debe estar entre {minimum} y {maximum}.")
-        readings[field] = value
-
-    high_pressure = readings["presionAlta"] >= 90
-    low_pressure = readings["presionBaja"] <= 10
-    diagnosis = "SIN_FALLAS"
-    if high_pressure:
-        diagnosis = "FALLA_PRESION_ALTA"
-    elif low_pressure:
-        diagnosis = "FALLA_PRESION_BAJA"
-    elif readings["tempInterior"] >= 5:
-        diagnosis = "TEMPERATURA_ELEVADA"
-
-    stopped = high_pressure or low_pressure
-    record = {
-        **readings,
-        "deviceId": "SIM-001",
-        "source": "simulator",
-        "estado": "NORMAL" if diagnosis == "SIN_FALLAS" else "CRITICO",
-        "diagnostico": diagnosis,
-        "proteccionAlta": high_pressure,
-        "proteccionBaja": low_pressure,
-        "ordenParoCompresor": stopped,
-        "compresor": 0 if stopped else 85,
-        "fanSolicitado": 90,
-        "fanPWM": 230,
-        "fanRpm": 1450,
-    }
-    return _record_telemetry(validate_telemetry_payload(record))
+    def _record_telemetry(self, record: dict[str, Any]) -> dict[str, Any]:
+        record["state"] = evaluate_device_state(record)
+        record["severity"] = "critical" if record["state"] == "alert" else "normal"
+        return self.store.save_telemetry(record, should_store_telemetry)
 
 
-def fetch_telemetry(device_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-    return [_with_state(record) for record in list_telemetry(device_id=device_id, limit=limit)]
+    def simulate_telemetry(self, payload: Any, device_id: str = "SIM-001") -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ValueError("El cuerpo debe ser un objeto JSON.")
+        readings = {}
+        ranges = {
+            "tempInterior": (-60, 80), "tempCondensador": (-60, 120), "tempSuccion": (-80, 80),
+            "presionAlta": (0, 100), "presionBaja": (0, 100),
+        }
+        for field, (minimum, maximum) in ranges.items():
+            value = payload.get(field)
+            if type(value) not in (int, float) or not minimum <= value <= maximum or not isfinite(value):
+                raise ValueError(f"{field} debe estar entre {minimum} y {maximum}.")
+            readings[field] = value
+
+        legacy_simulator = device_id == "SIM-001"
+        high_pressure = legacy_simulator and readings["presionAlta"] >= 90
+        low_pressure = legacy_simulator and readings["presionBaja"] <= 10
+        diagnosis = "SIN_FALLAS"
+        if high_pressure:
+            diagnosis = "FALLA_PRESION_ALTA"
+        elif low_pressure:
+            diagnosis = "FALLA_PRESION_BAJA"
+        elif legacy_simulator and readings["tempInterior"] >= 5:
+            diagnosis = "TEMPERATURA_ELEVADA"
+
+        stopped = high_pressure or low_pressure
+        record = {
+            **readings,
+            "deviceId": device_id,
+            "source": "simulator",
+            "estado": "NORMAL" if diagnosis == "SIN_FALLAS" else "CRITICO",
+            "diagnostico": diagnosis,
+            "proteccionAlta": high_pressure,
+            "proteccionBaja": low_pressure,
+            "ordenParoCompresor": stopped,
+            "compresor": 0 if stopped else 85,
+            "fanSolicitado": 90,
+            "fanPWM": 230,
+            "fanRpm": 1450,
+        }
+        return self._record_telemetry(validate_telemetry_payload(record))
 
 
-def fetch_devices() -> list[dict[str, Any]]:
-    return [_with_state(device) for device in list_devices()]
+    def fetch_telemetry(self, device_id: str | None = None, limit: int = 50, owner_id: int | None = None) -> list[dict[str, Any]]:
+        return [_with_state(record) for record in self.store.list_telemetry(device_id=device_id, limit=limit, owner_id=owner_id)]
 
 
-def fetch_latest_telemetry(device_id: str) -> dict[str, Any] | None:
-    record = get_latest_by_device(device_id)
-    return _with_state(record) if record else None
+    def fetch_devices(self, owner_id: int | None = None) -> list[dict[str, Any]]:
+        return [_with_state(device) for device in self.store.list_devices(owner_id=owner_id)]
+
+
+    def fetch_latest_telemetry(self, device_id: str) -> dict[str, Any] | None:
+        record = self.store.get_latest_by_device(device_id)
+        return _with_state(record) if record else None
 
 
 def _with_state(record: dict[str, Any]) -> dict[str, Any]:
