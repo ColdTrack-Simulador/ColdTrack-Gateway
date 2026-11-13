@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from hashlib import sha256
 from hmac import compare_digest, new as hmac_digest
+from json import dumps
 from math import isfinite
 from re import fullmatch
 from secrets import randbelow, token_urlsafe
@@ -97,7 +98,12 @@ class Operations:
         with self.repository.transaction(write=False) as data:
             user = data.user_by_email(identifier.strip().lower())
         if user and self.passwords.verify(user["password_hash"], password):
-            return {"id": user["id"], "role": user["role"], "email": user["email"]}
+            return {
+                "id": user["id"],
+                "role": user["role"],
+                "email": user["email"],
+                "session_version": user["session_version"],
+            }
         return None
 
     def create_device(self, owner, payload):
@@ -122,7 +128,7 @@ class Operations:
             raise UseCaseError("enabled debe ser booleano.")
         if "channels" in payload:
             channels = payload["channels"]
-            if not isinstance(channels, list) or any(channel not in CHANNELS for channel in channels):
+            if not isinstance(channels, list) or any(not isinstance(channel, str) or channel not in CHANNELS for channel in channels):
                 raise UseCaseError("Revisá los canales de medición.")
             payload["channels"] = list(dict.fromkeys(channels))
         if "schedule" in payload:
@@ -165,8 +171,10 @@ class Operations:
 
         schedule = [{"day": window["day"], "start": hhmm(window["start"]), "end": hhmm(window["end"])}
                     for window in policy["schedule"]]
+        sampling = active and bool(policy["channels"])
+        revision = secret_digest(dumps([policy, sampling], sort_keys=True))
         return {**policy, "schedule": schedule, "timezone": "UTC",
-                "samplingActive": active and bool(policy["channels"])}
+                "samplingActive": sampling, "revision": revision}
 
     def save_contact(self, owner, technician_id):
         if type(technician_id) is not int or technician_id <= 0:
@@ -176,16 +184,3 @@ class Operations:
             if not tech or tech["role"] != "technician":
                 raise UseCaseError("Técnico no encontrado.", 404)
             data.save_contact(owner, technician_id)
-
-    def request_review(self, owner, payload):
-        alert_id, technician = payload.get("alertId"), payload.get("technicianId")
-        if any(type(value) is not int or value <= 0 for value in (alert_id, technician)):
-            raise UseCaseError("Revisá los identificadores de alerta y técnico.")
-        notes = text(payload, "notes", 1500, minimum=0) if "notes" in payload else ""
-        with self.repository.transaction() as data:
-            alert = data.owned_alert(owner, alert_id)
-            contact = data.saved_technician(owner, technician)
-            if not alert or not contact:
-                raise UseCaseError("Alerta o contacto no encontrado.", 404)
-            description = alert["message"] or alert["title"]
-            return data.create_review(owner, technician, alert, contact["email"], description, notes)

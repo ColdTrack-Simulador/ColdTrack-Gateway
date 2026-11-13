@@ -1,0 +1,1758 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ColdTrack API",
+    "version": "1.3.0",
+    "description": "Iniciá sesión desde Cuenta para usar las rutas de propietario o técnico. Swagger conserva la cookie en este dominio. Para el gateway y el correo, usá la credencial Bearer correspondiente."
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "tags": [
+          "Sistema"
+        ],
+        "summary": "Consultar salud de la API",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Estado del servicio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/session": {
+      "get": {
+        "operationId": "getSession",
+        "tags": [
+          "Cuenta"
+        ],
+        "summary": "Consultar la sesión",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Estado de sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "startSession",
+        "tags": [
+          "Cuenta"
+        ],
+        "summary": "Iniciar sesión",
+        "security": [],
+        "description": "Para cuentas registradas, usar el correo en username. Swagger reutiliza la cookie del mismo dominio.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string",
+                    "example": "propietario@example.test"
+                  },
+                  "password": {
+                    "type": "string",
+                    "format": "password",
+                    "maxLength": 256
+                  }
+                },
+                "required": [
+                  "username",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sesión iniciada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "endSession",
+        "tags": [
+          "Cuenta"
+        ],
+        "summary": "Cerrar sesión",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Estado de sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/registration": {
+      "post": {
+        "operationId": "registerAccount",
+        "tags": [
+          "Cuenta"
+        ],
+        "summary": "Solicitar código de registro",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "propietario@example.test"
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "example": "Nombre de prueba"
+                  },
+                  "password": {
+                    "type": "string",
+                    "format": "password",
+                    "minLength": 12,
+                    "maxLength": 256,
+                    "example": "clave-larga-de-prueba"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "owner",
+                      "technician"
+                    ],
+                    "default": "owner"
+                  },
+                  "phone": {
+                    "type": "string",
+                    "maxLength": 40
+                  }
+                },
+                "required": [
+                  "email",
+                  "name",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Solicitud aceptada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Registration"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        }
+      }
+    },
+    "/api/registration/verify": {
+      "post": {
+        "operationId": "verifyRegistration",
+        "tags": [
+          "Cuenta"
+        ],
+        "summary": "Verificar código de registro",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "propietario@example.test"
+                  },
+                  "registrationId": {
+                    "type": "string"
+                  },
+                  "code": {
+                    "type": "string",
+                    "pattern": "^[0-9]{6}$",
+                    "example": "123456"
+                  }
+                },
+                "required": [
+                  "email",
+                  "registrationId",
+                  "code"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Correo verificado"
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        }
+      }
+    },
+    "/api/devices": {
+      "get": {
+        "operationId": "listDevices",
+        "tags": [
+          "Equipos"
+        ],
+        "summary": "Listar equipos visibles",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Equipos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "integer"
+                    },
+                    "devices": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Device"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        }
+      },
+      "post": {
+        "operationId": "registerDevice",
+        "tags": [
+          "Equipos"
+        ],
+        "summary": "Registrar equipo como propietario",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "example": "Nombre de prueba"
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Equipo creado; gatewayToken se entrega una vez",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          }
+        }
+      }
+    },
+    "/api/devices/{device_id}/policy": {
+      "get": {
+        "operationId": "getCapturePolicy",
+        "tags": [
+          "Equipos"
+        ],
+        "summary": "Consultar política de captura",
+        "security": [
+          {
+            "SessionCookie": []
+          },
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "CT-001"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Política y estado efectivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapturePolicyStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateCapturePolicy",
+        "tags": [
+          "Equipos"
+        ],
+        "summary": "Cambiar sensores, horarios y umbrales",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "CT-001"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyChanges"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Política actualizada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Policy"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        }
+      }
+    },
+    "/api/devices/{device_id}/alerts": {
+      "get": {
+        "operationId": "listDeviceAlerts",
+        "tags": [
+          "Equipos"
+        ],
+        "summary": "Consultar alertas del equipo",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "CT-001"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alertas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Alert"
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        }
+      }
+    },
+    "/api/telemetry": {
+      "get": {
+        "operationId": "listTelemetry",
+        "tags": [
+          "Telemetría"
+        ],
+        "summary": "Consultar historial de telemetría",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "example": "CT-001"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 50,
+              "description": "La respuesta se limita a 500 lecturas."
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lecturas visibles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "integer"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Telemetry"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        }
+      },
+      "post": {
+        "operationId": "receiveTelemetry",
+        "tags": [
+          "Telemetría"
+        ],
+        "summary": "Enviar lectura desde el gateway",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelemetryInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Lectura sin almacenar",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryReceipt"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Lectura almacenada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          }
+        }
+      }
+    },
+    "/api/telemetry/latest/{device_id}": {
+      "get": {
+        "operationId": "getLatestTelemetry",
+        "tags": [
+          "Telemetría"
+        ],
+        "summary": "Consultar última lectura",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "CT-001"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Última lectura",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Telemetry"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        }
+      }
+    },
+    "/api/simulator/readings": {
+      "post": {
+        "operationId": "simulateReading",
+        "tags": [
+          "Telemetría"
+        ],
+        "summary": "Simular una lectura",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "description": "El propietario indica deviceId. El modo demo usa SIM-001.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "deviceId": {
+                    "type": "string",
+                    "example": "CT-001"
+                  },
+                  "tempInterior": {
+                    "type": "number",
+                    "example": -18
+                  },
+                  "tempCondensador": {
+                    "type": "number",
+                    "example": 37
+                  },
+                  "tempSuccion": {
+                    "type": "number",
+                    "example": -22
+                  },
+                  "presionAlta": {
+                    "type": "number",
+                    "example": 65
+                  },
+                  "presionBaja": {
+                    "type": "number",
+                    "example": 28
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Lectura sin almacenar",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Telemetry"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Lectura almacenada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Telemetry"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          }
+        }
+      }
+    },
+    "/api/technicians": {
+      "get": {
+        "operationId": "listTechnicians",
+        "tags": [
+          "Mantenimiento"
+        ],
+        "summary": "Consultar directorio de técnicos",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Técnicos visibles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Technician"
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          }
+        }
+      }
+    },
+    "/api/technician-contacts": {
+      "get": {
+        "operationId": "listTechnicianContacts",
+        "tags": [
+          "Mantenimiento"
+        ],
+        "summary": "Consultar técnicos guardados",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contactos del propietario",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Technician"
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          }
+        }
+      }
+    },
+    "/api/technician-contacts/{technician_id}": {
+      "put": {
+        "operationId": "saveTechnicianContact",
+        "tags": [
+          "Mantenimiento"
+        ],
+        "summary": "Guardar técnico como contacto",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "technician_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Contacto guardado"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        }
+      }
+    },
+    "/api/reviews": {
+      "get": {
+        "operationId": "listReviewRequests",
+        "tags": [
+          "Mantenimiento"
+        ],
+        "summary": "Consultar solicitudes de revisión",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Solicitudes del propietario o técnico",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Review"
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        }
+      },
+      "post": {
+        "operationId": "requestReview",
+        "tags": [
+          "Mantenimiento"
+        ],
+        "summary": "Solicitar revisión desde una alerta",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "alertId": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "technicianId": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "notes": {
+                    "type": "string",
+                    "maxLength": 1500
+                  }
+                },
+                "required": [
+                  "alertId",
+                  "technicianId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Solicitud existente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Review"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Solicitud creada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Review"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        }
+      }
+    },
+    "/api/mail/claim": {
+      "post": {
+        "operationId": "claimMail",
+        "tags": [
+          "Correo"
+        ],
+        "summary": "Reservar siguiente correo disponible",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "description": "Usar la credencial de correo. La reserva vence a los dos minutos.",
+        "responses": {
+          "200": {
+            "description": "Correo reservado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mail"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "Cola sin mensajes disponibles"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        }
+      }
+    },
+    "/api/mail/{mail_id}/ack": {
+      "post": {
+        "operationId": "acknowledgeMail",
+        "tags": [
+          "Correo"
+        ],
+        "summary": "Confirmar resultado de entrega",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "description": "Usar la credencial de correo y la reserva recibida en claim.",
+        "parameters": [
+          {
+            "name": "mail_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lease": {
+                    "type": "string",
+                    "maxLength": 64
+                  },
+                  "sent": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "lease",
+                  "sent"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Resultado guardado"
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "SessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "session",
+        "description": "Cookie devuelta al iniciar sesión."
+      },
+      "Bearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "storage": {
+            "type": "string"
+          },
+          "architecture": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "status"
+        ]
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "authenticated": {
+            "type": "boolean"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "account": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "email": {
+                "type": "string",
+                "format": "email",
+                "example": "propietario@example.test"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "owner",
+                  "technician"
+                ],
+                "default": "owner"
+              }
+            }
+          }
+        },
+        "required": [
+          "authenticated",
+          "required"
+        ]
+      },
+      "Registration": {
+        "type": "object",
+        "properties": {
+          "registrationId": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "registrationId",
+          "message"
+        ]
+      },
+      "Device": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "example": "CT-001"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "example": "Nombre de prueba"
+          }
+        },
+        "required": [
+          "deviceId"
+        ]
+      },
+      "DeviceCreated": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "example": "CT-001"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "example": "Nombre de prueba"
+          },
+          "gatewayToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "deviceId",
+          "name",
+          "gatewayToken"
+        ]
+      },
+      "PolicyChanges": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "tempInterior",
+                "tempCondensador",
+                "tempSuccion",
+                "presionAlta",
+                "presionBaja"
+              ]
+            }
+          },
+          "schedule": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 6,
+                  "description": "0 para lunes y 6 para domingo"
+                },
+                "start": {
+                  "type": "string",
+                  "example": "07:30"
+                },
+                "end": {
+                  "type": "string",
+                  "example": "19:30"
+                }
+              },
+              "required": [
+                "day",
+                "start",
+                "end"
+              ]
+            }
+          },
+          "limits": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "min": {
+                  "type": "number"
+                },
+                "max": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Policy": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PolicyChanges"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "timezone": {
+                "type": "string",
+                "example": "UTC"
+              },
+              "samplingActive": {
+                "type": "boolean"
+              },
+              "revision": {
+                "type": "string",
+                "minLength": 64,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "timezone",
+              "samplingActive"
+            ]
+          }
+        ]
+      },
+      "TelemetryInput": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "example": "CT-001"
+          },
+          "estado": {
+            "type": "string",
+            "example": "NORMAL"
+          },
+          "diagnostico": {
+            "type": "string",
+            "example": "SIN_FALLAS"
+          },
+          "tempInterior": {
+            "type": "number",
+            "example": -18
+          },
+          "tempCondensador": {
+            "type": "number",
+            "example": 37
+          },
+          "tempSuccion": {
+            "type": "number",
+            "example": -22
+          },
+          "presionAlta": {
+            "type": "number",
+            "example": 65
+          },
+          "presionBaja": {
+            "type": "number",
+            "example": 28
+          },
+          "uptimeMs": {
+            "type": "number",
+            "nullable": true
+          },
+          "compresor": {
+            "type": "number",
+            "nullable": true
+          },
+          "fanSolicitado": {
+            "type": "number",
+            "nullable": true
+          },
+          "fanPWM": {
+            "type": "number",
+            "nullable": true
+          },
+          "fanRpm": {
+            "type": "number",
+            "nullable": true
+          },
+          "proteccionAlta": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "enum": [
+                  0,
+                  1
+                ]
+              }
+            ]
+          },
+          "proteccionBaja": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "enum": [
+                  0,
+                  1
+                ]
+              }
+            ]
+          },
+          "ordenParoCompresor": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "enum": [
+                  0,
+                  1
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "deviceId",
+          "estado",
+          "diagnostico"
+        ]
+      },
+      "Telemetry": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "example": "CT-001"
+          },
+          "estado": {
+            "type": "string",
+            "example": "NORMAL"
+          },
+          "diagnostico": {
+            "type": "string",
+            "example": "SIN_FALLAS"
+          },
+          "tempInterior": {
+            "type": "number",
+            "example": -18
+          },
+          "tempCondensador": {
+            "type": "number",
+            "example": 37
+          },
+          "tempSuccion": {
+            "type": "number",
+            "example": -22
+          },
+          "presionAlta": {
+            "type": "number",
+            "example": 65
+          },
+          "presionBaja": {
+            "type": "number",
+            "example": 28
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stored": {
+            "type": "boolean"
+          },
+          "samplingActive": {
+            "type": "boolean"
+          },
+          "uptimeMs": {
+            "type": "number",
+            "nullable": true
+          },
+          "compresor": {
+            "type": "number",
+            "nullable": true
+          },
+          "fanSolicitado": {
+            "type": "number",
+            "nullable": true
+          },
+          "fanPWM": {
+            "type": "number",
+            "nullable": true
+          },
+          "fanRpm": {
+            "type": "number",
+            "nullable": true
+          },
+          "proteccionAlta": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "proteccionBaja": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "ordenParoCompresor": {
+            "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
+      "TelemetryReceipt": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string",
+            "example": "CT-001"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "stored": {
+            "type": "boolean"
+          },
+          "samplingActive": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Alert": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "type": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "openedAt": {
+            "type": "string"
+          },
+          "resolvedAt": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "Technician": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "example": "Nombre de prueba"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "propietario@example.test"
+          },
+          "phone": {
+            "type": "string"
+          }
+        }
+      },
+      "Review": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "alertId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "technicianId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "deviceId": {
+            "type": "string",
+            "example": "CT-001"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Mail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "lease": {
+            "type": "string"
+          },
+          "recipient": {
+            "type": "string",
+            "format": "email",
+            "example": "propietario@example.test"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        }
+      },
+      "CapturePolicyStatus": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Policy"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "captureAck": {
+                "type": "object",
+                "nullable": true,
+                "properties": {
+                  "revision": {
+                    "type": "string",
+                    "minLength": 64,
+                    "maxLength": 64
+                  },
+                  "applied": {
+                    "type": "boolean"
+                  },
+                  "acknowledgedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "revision",
+                  "applied",
+                  "acknowledgedAt"
+                ]
+              },
+              "captureAckCurrent": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "captureAck",
+              "captureAckCurrent"
+            ]
+          }
+        ]
+      }
+    },
+    "responses": {
+      "400": {
+        "description": "Solicitud inválida",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Falta una sesión o credencial válida",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "403": {
+        "description": "El rol no puede realizar la operación",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "404": {
+        "description": "Recurso no disponible",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "409": {
+        "description": "Conflicto con el estado actual",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "415": {
+        "description": "Se requiere application/json",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "429": {
+        "description": "Demasiados intentos",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "503": {
+        "description": "Función sin configurar",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

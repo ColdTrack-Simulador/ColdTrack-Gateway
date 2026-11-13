@@ -6,7 +6,8 @@ from time import time
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from coldtrack.domain import CHANNELS, diagnose, sampling_active
+from coldtrack.application import Operations
+from coldtrack.domain import CHANNELS, DEFAULT_LIMITS, diagnose, sampling_active
 
 
 def initialize(connection):
@@ -18,12 +19,16 @@ def initialize(connection):
     CREATE TABLE IF NOT EXISTS ct_users (
         id INTEGER PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
         role TEXT NOT NULL CHECK (role IN ('owner', 'technician')),
-        phone TEXT NOT NULL, password_hash TEXT NOT NULL
+        phone TEXT NOT NULL, password_hash TEXT NOT NULL, session_version INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS ct_registrations (
         email TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, phone TEXT NOT NULL,
         password_hash TEXT NOT NULL, code_hash TEXT NOT NULL, expires INTEGER NOT NULL,
         attempts INTEGER NOT NULL, resend_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS ct_password_resets (
+        user_id INTEGER PRIMARY KEY REFERENCES ct_users(id), code_hash TEXT NOT NULL,
+        expires INTEGER NOT NULL, attempts INTEGER NOT NULL, resend_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS ct_managed_devices (
         device_id TEXT PRIMARY KEY REFERENCES devices(device_id),
@@ -31,6 +36,19 @@ def initialize(connection):
         policy TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS ct_devices_owner ON ct_managed_devices(owner_id);
+    CREATE TABLE IF NOT EXISTS ct_pairing (
+        digest TEXT PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES ct_users(id),
+        name TEXT NOT NULL, expires INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ct_pairing_expiry ON ct_pairing(expires);
+    CREATE TABLE IF NOT EXISTS ct_capture_ack (
+        device_id TEXT PRIMARY KEY REFERENCES ct_managed_devices(device_id),
+        revision TEXT NOT NULL, applied INTEGER NOT NULL, acknowledged_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS ct_notification_preferences (
+        device_id TEXT PRIMARY KEY REFERENCES ct_managed_devices(device_id),
+        preferences TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS ct_contacts (
         owner_id INTEGER REFERENCES ct_users(id), technician_id INTEGER REFERENCES ct_users(id),
         PRIMARY KEY (owner_id, technician_id)
@@ -48,6 +66,11 @@ def initialize(connection):
         attempts INTEGER NOT NULL DEFAULT 0, delivered INTEGER NOT NULL DEFAULT 0
     );
     """)
+    connection.execute("BEGIN IMMEDIATE")
+    columns = {column[1] for column in connection.execute("PRAGMA table_info(ct_users)")}
+    if "session_version" not in columns:
+        connection.execute("ALTER TABLE ct_users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0")
+    connection.commit()
 
 
 class WerkzeugPasswords:
@@ -94,6 +117,45 @@ class SQLiteData:
     def user(self, user_id):
         return self.connection.execute("SELECT * FROM ct_users WHERE id = ?", (user_id,)).fetchone()
 
+    def update_profile(self, user_id, name, phone):
+        return self.connection.execute(
+            """UPDATE ct_users SET name=COALESCE(?, name), phone=COALESCE(?, phone)
+               WHERE id=? RETURNING id,email,role,name,phone""",
+            (name, phone, user_id),
+        ).fetchone()
+
+    def password_reset(self, user_id):
+        return self.connection.execute(
+            "SELECT code_hash,expires,attempts,resend_at FROM ct_password_resets WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+
+    def store_password_reset(self, user_id, digest, now):
+        self.connection.execute(
+            """INSERT INTO ct_password_resets(user_id,code_hash,expires,attempts,resend_at)
+               VALUES (?,?,?,5,?) ON CONFLICT(user_id) DO UPDATE SET
+               code_hash=excluded.code_hash, expires=excluded.expires, attempts=5, resend_at=excluded.resend_at""",
+            (user_id, digest, now + 600, now + 60),
+        )
+
+    def fail_password_reset(self, user_id):
+        self.connection.execute(
+            "UPDATE ct_password_resets SET attempts=attempts-1 WHERE user_id=?", (user_id,),
+        )
+
+    def complete_password_reset(self, user_id, password_hash):
+        self.connection.execute(
+            "UPDATE ct_users SET password_hash=?, session_version=session_version+1 WHERE id=?",
+            (password_hash, user_id),
+        )
+        self.connection.execute("DELETE FROM ct_password_resets WHERE user_id=?", (user_id,))
+
+    def clear_password_reset_mail(self, email, subject):
+        self.connection.execute(
+            "UPDATE ct_mail SET delivered=1, body='' WHERE recipient=? AND subject=? AND delivered=0",
+            (email, subject),
+        )
+
     def registration(self, email):
         return self.connection.execute("SELECT * FROM ct_registrations WHERE email = ?", (email,)).fetchone()
 
@@ -110,8 +172,9 @@ class SQLiteData:
             (email, name, role, phone, password_hash, digest, now + 600, now + 60),
         )
         self.connection.execute(
-            "UPDATE ct_mail SET delivered=1, body='' WHERE recipient=? AND expires IS NOT NULL AND delivered=0",
-            (email,),
+            """UPDATE ct_mail SET delivered=1, body='' WHERE recipient=? AND subject=?
+               AND expires IS NOT NULL AND delivered=0""",
+            (email, "Verificá tu cuenta de ColdTrack"),
         )
 
     def complete_registration(self, email):
@@ -122,8 +185,9 @@ class SQLiteData:
         )
         self.connection.execute("DELETE FROM ct_registrations WHERE email=?", (email,))
         self.connection.execute(
-            "UPDATE ct_mail SET delivered=1, body='' WHERE recipient=? AND expires IS NOT NULL AND delivered=0",
-            (email,),
+            """UPDATE ct_mail SET delivered=1, body='' WHERE recipient=? AND subject=?
+               AND expires IS NOT NULL AND delivered=0""",
+            (email, "Verificá tu cuenta de ColdTrack"),
         )
 
     def fail_registration_attempt(self, email):
@@ -147,6 +211,79 @@ class SQLiteData:
             "UPDATE ct_managed_devices SET policy=? WHERE device_id=?", (json.dumps(policy), device_id)
         )
 
+    def save_pairing(self, owner, name, digest, expires):
+        self.connection.execute("DELETE FROM ct_pairing WHERE expires<=?", (int(time()),))
+        self.connection.execute("INSERT INTO ct_pairing VALUES (?,?,?,?)", (digest, owner, name, expires))
+
+    def claim_pairing(self, digest, owner, name, token_hash, now):
+        row = self.connection.execute(
+            "SELECT name FROM ct_pairing WHERE digest=? AND owner_id=? AND expires>?", (digest, owner, now)
+        ).fetchone()
+        if row is None:
+            return None
+        device_id = "CT-" + token_urlsafe(12)
+        label = name or row["name"]
+        self.create_device(owner, device_id, label, token_hash, DEFAULT_LIMITS)
+        self.connection.execute("DELETE FROM ct_pairing WHERE digest=?", (digest,))
+        return {"deviceId": device_id, "name": label}
+
+    def equipment_detail(self, owner, device_id):
+        row = self.connection.execute(
+            """SELECT d.device_id AS deviceId, d.name, d.last_seen AS lastSeen
+               FROM devices d JOIN ct_managed_devices m USING(device_id)
+               WHERE d.device_id=? AND m.owner_id=?""", (device_id, owner)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def equipment_usage(self, device_id, days):
+        row = self.connection.execute(
+            """WITH readings AS (
+                SELECT julianday(received_at) AS observed_at, compresor,
+                       lead(julianday(received_at)) OVER w AS next_at,
+                       lead(compresor) OVER w AS next_compressor
+                FROM telemetry_readings
+                WHERE device_id=? AND received_at>=strftime('%Y-%m-%dT%H:%M:%f+00:00','now',?)
+                WINDOW w AS (ORDER BY received_at, id)
+            ), intervals AS (
+                SELECT (next_at-observed_at)*86400 AS seconds, compresor, next_compressor
+                FROM readings WHERE compresor>=0 AND next_compressor>=0
+            )
+            SELECT coalesce(sum(seconds),0), coalesce(sum(CASE WHEN compresor>0 AND next_compressor>0
+                THEN seconds ELSE 0 END),0) FROM intervals WHERE seconds BETWEEN 0 AND 360.001""",
+            (device_id, f"-{days} days"),
+        ).fetchone()
+        return row[0], row[1]
+
+    def record_capture_ack(self, device_id, revision, enabled):
+        device = self.device(device_id)
+        if not device or Operations.policy_response(device["policy"])["revision"] != revision:
+            return False
+        self.connection.execute(
+            """INSERT INTO ct_capture_ack VALUES (?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET
+               revision=excluded.revision, applied=excluded.applied, acknowledged_at=excluded.acknowledged_at""",
+            (device_id, revision, enabled, datetime.now(timezone.utc).isoformat()),
+        )
+        return True
+
+    def capture_ack(self, device_id):
+        row = self.connection.execute(
+            """SELECT revision, applied, acknowledged_at AS acknowledgedAt
+               FROM ct_capture_ack WHERE device_id=?""", (device_id,)
+        ).fetchone()
+        return {**dict(row), "applied": bool(row["applied"])} if row else None
+
+    def notification_preferences(self, device_id):
+        row = self.connection.execute(
+            "SELECT preferences FROM ct_notification_preferences WHERE device_id=?", (device_id,)
+        ).fetchone()
+        return json.loads(row[0]) if row else {"emailEnabled": True, "mutedCodes": []}
+
+    def save_notification_preferences(self, device_id, preferences):
+        self.connection.execute(
+            """INSERT INTO ct_notification_preferences VALUES (?,?) ON CONFLICT(device_id)
+               DO UPDATE SET preferences=excluded.preferences""", (device_id, json.dumps(preferences))
+        )
+
     def technicians(self, owner, contacts_only):
         query = """SELECT u.id, u.name, u.email, u.phone FROM ct_users u
                    JOIN ct_contacts c ON c.technician_id=u.id WHERE c.owner_id=? ORDER BY u.name, u.id"""
@@ -168,33 +305,6 @@ class SQLiteData:
             """SELECT a.* FROM alerts a JOIN ct_managed_devices d ON d.device_id=a.device_id
                WHERE a.id=? AND d.owner_id=?""", (alert_id, owner)
         ).fetchone()
-
-    def create_review(self, owner, technician, alert, email, description, notes):
-        now = datetime.now(timezone.utc).isoformat()
-        result = self.connection.execute(
-            """INSERT INTO ct_reviews(owner_id,technician_id,alert_id,device_id,description,notes,created_at)
-               VALUES (?,?,?,?,?,?,?) ON CONFLICT(alert_id,technician_id) DO NOTHING""",
-            (owner, technician, alert["id"], alert["device_id"], description, notes, now),
-        )
-        review = self.connection.execute(
-            """SELECT id, alert_id AS alertId, device_id AS deviceId, technician_id AS technicianId,
-                      description, notes, created_at AS createdAt
-               FROM ct_reviews WHERE alert_id=? AND technician_id=?""", (alert["id"], technician)
-        ).fetchone()
-        if result.rowcount:
-            body = f"Equipo {alert['device_id']}\nSolicitud #{review['id']}\n\n{description}"
-            if notes:
-                body += f"\n\nNotas del propietario: {notes}"
-            self.queue_mail(email, "Nueva solicitud de revisión en ColdTrack", body)
-        return dict(review), bool(result.rowcount)
-
-    def reviews(self, actor):
-        return [dict(row) for row in self.connection.execute(
-            """SELECT id, alert_id AS alertId, device_id AS deviceId, technician_id AS technicianId,
-                      description, notes, created_at AS createdAt
-               FROM ct_reviews WHERE owner_id=? OR technician_id=? ORDER BY id DESC LIMIT 100""",
-            (actor, actor),
-        )]
 
     def queue_mail(self, recipient, subject, body, expires=None):
         self.connection.execute(
@@ -280,12 +390,15 @@ def sync_managed_alerts(connection, record):
         """SELECT u.email FROM ct_managed_devices d JOIN ct_users u ON u.id=d.owner_id
            WHERE d.device_id=?""", (device_id,)
     ).fetchone()
+    data = SQLiteData(connection)
+    preferences = data.notification_preferences(device_id)
     for code, description in findings.items():
         connection.execute(
             """INSERT INTO alerts(device_id, alert_type, severity, title, message, created_at)
                VALUES (?,?,?,?,?,?)""", (device_id, code, record["severity"], code, description, received_at),
         )
-        SQLiteData(connection).queue_mail(
-            owner["email"], f"Alerta ColdTrack · {device_id}",
-            f"Equipo {device_id}\n{received_at}\n\n{description}",
-        )
+        if preferences["emailEnabled"] and code not in preferences["mutedCodes"]:
+            data.queue_mail(
+                owner["email"], f"Alerta ColdTrack · {device_id}",
+                f"Equipo {device_id}\n{received_at}\n\n{description}",
+            )

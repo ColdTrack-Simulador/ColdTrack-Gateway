@@ -1,0 +1,595 @@
+{
+  "paths": {
+    "/api/maintenance-requests": {
+      "post": {
+        "operationId": "createMaintenanceRequest",
+        "tags": [
+          "Mantenimiento"
+        ],
+        "summary": "Crear una solicitud manual o desde alerta",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "technicianId": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "deviceId": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 1500
+                      },
+                      "notes": {
+                        "type": "string",
+                        "maxLength": 1500
+                      }
+                    },
+                    "required": [
+                      "technicianId",
+                      "deviceId",
+                      "description"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "technicianId": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "alertId": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "deviceId": {
+                        "type": "string"
+                      },
+                      "notes": {
+                        "type": "string",
+                        "maxLength": 1500
+                      }
+                    },
+                    "required": [
+                      "technicianId",
+                      "alertId"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Solicitud por alerta existente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceRequest"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Solicitud creada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        }
+      },
+      "get": {
+        "operationId": "listMaintenanceRequests",
+        "tags": [
+          "Mantenimiento"
+        ],
+        "summary": "Listar solicitudes propias o asignadas",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "beforeId",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Página de solicitudes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MaintenanceRequest"
+                      }
+                    },
+                    "nextBeforeId": {
+                      "type": "integer",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "nextBeforeId"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        }
+      }
+    },
+    "/api/maintenance-requests/{request_id}": {
+      "get": {
+        "operationId": "getMaintenanceRequest",
+        "tags": [
+          "Mantenimiento"
+        ],
+        "summary": "Consultar solicitud e historial",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Detalle de la solicitud",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        }
+      }
+    },
+    "/api/maintenance-requests/{request_id}/status": {
+      "patch": {
+        "operationId": "updateMaintenanceStatus",
+        "tags": [
+          "Mantenimiento"
+        ],
+        "summary": "Cambiar estado de solicitud",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "description": "El técnico acepta, inicia y resuelve. El propietario cancela una solicitud inicial o cierra una resuelta.",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "requested",
+                      "accepted",
+                      "in_progress",
+                      "resolved",
+                      "closed",
+                      "cancelled"
+                    ]
+                  },
+                  "notes": {
+                    "type": "string",
+                    "maxLength": 1500
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Solicitud actualizada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          }
+        }
+      }
+    },
+    "/api/maintenance-requests/{request_id}/rating": {
+      "post": {
+        "operationId": "rateMaintenanceRequest",
+        "tags": [
+          "Mantenimiento"
+        ],
+        "summary": "Reseñar trabajo cerrado",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "score": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  },
+                  "comment": {
+                    "type": "string",
+                    "maxLength": 1500
+                  }
+                },
+                "required": [
+                  "score"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Reseña guardada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rating"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          }
+        }
+      }
+    },
+    "/api/technician-contacts/{technician_id}": {
+      "delete": {
+        "operationId": "removeTechnicianContact",
+        "tags": [
+          "Mantenimiento"
+        ],
+        "summary": "Quitar técnico de los contactos",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "technician_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Contacto quitado si existía"
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "MaintenanceRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "alertId": {
+            "type": "integer",
+            "nullable": true
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "technicianId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1500
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 1500
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "accepted",
+              "in_progress",
+              "resolved",
+              "closed",
+              "cancelled"
+            ]
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "deviceId",
+          "technicianId",
+          "description",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "MaintenanceDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MaintenanceRequest"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "history": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "actorId": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "actorRole": {
+                      "type": "string",
+                      "enum": [
+                        "owner",
+                        "technician"
+                      ]
+                    },
+                    "previousStatus": {
+                      "type": "string",
+                      "enum": [
+                        "requested",
+                        "accepted",
+                        "in_progress",
+                        "resolved",
+                        "closed",
+                        "cancelled",
+                        null
+                      ],
+                      "nullable": true
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "requested",
+                        "accepted",
+                        "in_progress",
+                        "resolved",
+                        "closed",
+                        "cancelled"
+                      ]
+                    },
+                    "notes": {
+                      "type": "string",
+                      "maxLength": 1500
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              },
+              "rating": {
+                "type": "object",
+                "properties": {
+                  "score": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  },
+                  "comment": {
+                    "type": "string",
+                    "maxLength": 1500
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "score",
+                  "comment",
+                  "createdAt"
+                ],
+                "nullable": true
+              }
+            },
+            "required": [
+              "history",
+              "rating"
+            ]
+          }
+        ]
+      },
+      "Rating": {
+        "type": "object",
+        "properties": {
+          "score": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 1500
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "score",
+          "comment",
+          "createdAt"
+        ]
+      }
+    }
+  }
+}

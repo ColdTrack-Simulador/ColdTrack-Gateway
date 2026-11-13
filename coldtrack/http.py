@@ -67,7 +67,12 @@ def create_operations_blueprint(operations, repository):
             owner = actor("owner")
             if not device or device["owner_id"] != owner:
                 raise UseCaseError("Equipo no encontrado.", 404)
-        return jsonify(operations.policy_response(device["policy"]))
+        policy = operations.policy_response(device["policy"])
+        with repository.transaction(write=False) as data:
+            policy["captureAck"] = data.capture_ack(device_id)
+        ack = policy["captureAck"]
+        policy["captureAckCurrent"] = bool(ack and ack["revision"] == policy["revision"])
+        return jsonify(policy)
 
     @bp.patch("/api/devices/<device_id>/policy")
     def update_policy(device_id):
@@ -89,20 +94,10 @@ def create_operations_blueprint(operations, repository):
 
     @bp.put("/api/technician-contacts/<int:technician_id>")
     def save_contact(technician_id):
+        if not 1 <= technician_id <= 2**63 - 1:
+            raise UseCaseError("Revisá el identificador del técnico.")
         operations.save_contact(actor("owner"), technician_id)
         return "", 204
-
-    @bp.post("/api/reviews")
-    def create_review():
-        item, created = operations.request_review(actor("owner"), payload())
-        return jsonify(item), 201 if created else 200
-
-    @bp.get("/api/reviews")
-    def reviews():
-        principal = actor()
-        with repository.transaction(write=False) as data:
-            items = data.reviews(principal)
-        return jsonify({"items": items})
 
     @bp.post("/api/mail/claim")
     def claim_mail():
@@ -116,6 +111,8 @@ def create_operations_blueprint(operations, repository):
     @bp.post("/api/mail/<int:mail_id>/ack")
     def acknowledge_mail(mail_id):
         require_mail_worker()
+        if not 1 <= mail_id <= 2**63 - 1:
+            raise UseCaseError("Revisá el identificador del correo.")
         data = payload()
         lease, sent = data.get("lease"), data.get("sent")
         if not isinstance(lease, str) or len(lease) > 64 or type(sent) is not bool:

@@ -1,0 +1,74 @@
+{
+  "paths": {
+    "/api/assistant/questions": {
+      "post": {
+        "operationId": "askAssistant",
+        "tags": [
+          "Asistente"
+        ],
+        "summary": "Consultar una pregunta frecuente",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "example": "¿Cómo pauso los sensores?"
+                  }
+                },
+                "required": [
+                  "question"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta y tema si fue identificado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "answered": {
+                      "type": "boolean"
+                    },
+                    "answer": {
+                      "type": "string"
+                    },
+                    "topic": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "answered",
+                    "answer",
+                    "topic"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        }
+      }
+    }
+  }
+}

@@ -6,6 +6,7 @@ import sqlite3
 from typing import Any, Callable
 
 from coldtrack.infrastructure import apply_managed_policy, initialize, sync_managed_alerts
+from coldtrack.maintenance_infrastructure import initialize_maintenance
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -199,6 +200,8 @@ def init_db() -> None:
             )
             """
         )
+
+        initialize_maintenance(connection)
 
     _migrate_legacy_telemetry_table()
 
@@ -519,6 +522,11 @@ def delete_all_data() -> None:
     with _connect() as connection:
         connection.execute("DELETE FROM events")
         connection.execute("DELETE FROM ct_reviews")
+        connection.execute("DELETE FROM ct_maintenance_ratings")
+        connection.execute("DELETE FROM ct_maintenance_history")
+        connection.execute("DELETE FROM ct_maintenance_requests")
+        connection.execute("DELETE FROM ct_notification_preferences")
+        connection.execute("DELETE FROM ct_capture_ack")
         connection.execute("DELETE FROM ct_managed_devices")
         connection.execute("DELETE FROM alerts")
         connection.execute("DELETE FROM telemetry_readings")

@@ -1,5 +1,30 @@
 # ColdTrack Gateway
 
+## Swagger y comprobaciones locales
+
+La API publica Swagger UI en `/apidocs/` y el contrato OpenAPI 3.0.3 en
+`/apispec_1.json`. Abrí la interfaz en el mismo dominio que el backend para
+que las peticiones autenticadas reutilicen la cookie de `POST /api/session`.
+En desarrollo local por HTTP, configurá `COLDTRACK_ALLOW_HTTP=1` antes de
+iniciar Flask si utilizás autenticación. Para telemetría y procesamiento de
+correo, utilizá **Authorize** con la credencial Bearer de cada operación.
+
+Instalá las dependencias de desarrollo y ejecutá las comprobaciones:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m ruff check --select F,E9 .
+python -m pytest -q
+```
+
+El contrato principal está en `coldtrack/openapi/base.json`. Cada módulo puede
+agregar un archivo JSON en esa carpeta con `paths` y `components`. Para una ruta
+existente, agregá solamente métodos que aún no estén declarados. Para
+modificar el contrato de un método existente, actualizá su declaración.
+Las pruebas verifican el esquema y que todas las operaciones HTTP públicas
+estén documentadas.
+
+
 ## Cuentas, sensores y atención técnica
 
 Las reglas de diagnóstico y horarios están en `coldtrack/domain.py`.
@@ -529,3 +554,26 @@ Para verificar el flujo completo:
    ```
 
 Si ambos cambios aparecen automáticamente en las dos terminales, el flujo está funcionando correctamente.
+
+### Perfil y recuperación de contraseña
+
+El propietario y el técnico autenticados consultan su cuenta con `GET /api/profile`. Devuelve `id`, `email`, `role`, `name` y `phone`. Con `PATCH /api/profile` pueden editar `name` y `phone`; enviar `{"phone":""}` borra el teléfono. Los datos de la sesión, el rol y el correo se mantienen.
+
+Para recuperar una contraseña, habilitá el registro y configurá el proceso de correo. Enviá `POST /api/password-reset` con `{"email":"propietario@example.com"}`. La respuesta `202` es genérica. Si la cuenta existe, el servicio pone en cola un código con vigencia de diez minutos y espera al menos 60 segundos entre envíos para esa cuenta. Después enviá `POST /api/password-reset/confirm` con `email`, `code` de seis dígitos y `password` de 12 a 256 caracteres. El éxito devuelve `204`, consume el código y revoca las sesiones de la cuenta. Un código inválido, vencido o agotado devuelve `400`. Las solicitudes están limitadas por IP y los códigos admiten cinco intentos.
+
+El primer arranque actualiza SQLite de forma idempotente. Las sesiones de cuentas emitidas antes de esta versión requieren un nuevo ingreso. Las credenciales del gateway y de la cuenta de demostración conservan su flujo.
+
+
+## Funciones y verificación manual
+
+El inventario de métodos, ejemplos y resultados esperados está en [PRUEBAS-MANUALES.md](PRUEBAS-MANUALES.md). Swagger UI se sirve en `/apidocs/` y el contrato OpenAPI en `/apispec_1.json`. El login crea una cookie HttpOnly. Para las operaciones de gateway y worker de correo usá la credencial Bearer correspondiente.
+
+- Cuentas de propietario y técnico, edición de nombre y teléfono, y recuperación por correo. Las sesiones emitidas antes de incorporar su versionado deben iniciar sesión otra vez. El restablecimiento revoca las sesiones de la cuenta.
+- Alta manual y QR de aprovisionamiento emitido y canjeado por el mismo propietario. El código dura 10 minutos y se consume una vez. El frontend podrá representar ese código en un QR.
+- La captura puede pausarse por equipo, canal u horario. El gateway puede enviar su acuse junto con la revisión de la política. El acuse registra una declaración del dispositivo. El control físico requiere firmware compatible.
+- Las horas de funcionamiento se estiman entre muestras con estado conocido y separación de hasta 360 segundos. Las muestras archivadas con ambos extremos activos cuentan como tiempo de compresor activo.
+- Las preferencias de correo de alertas se guardan por equipo. Los códigos predefinidos se pueden silenciar por separado y el correo se puede desactivar en su conjunto. Las alertas quedan registradas.
+- Mantenimiento con alta manual o desde alertas, cambios de estado por rol, historial y reseña del propietario al cerrar. El contrato anterior de solicitudes por alerta permanece accesible en `/api/reviews`.
+- El asistente responde preguntas frecuentes de manera local. Las reglas de diagnóstico existentes siguen generando las alertas. El prototipo n8n/Gemini de diagnóstico asistido requiere validar casos y configurar sus servicios antes de integrarlo.
+
+Hacé una copia verificada de SQLite antes de desplegar. Si se vuelve temporalmente al backend anterior a mantenimiento, evitá nuevas escrituras de solicitudes hasta conciliar los IDs y datos entre versiones. Conservá la base actual para recuperar las operaciones posteriores a la copia.
