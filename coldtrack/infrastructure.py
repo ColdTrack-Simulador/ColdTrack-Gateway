@@ -18,12 +18,16 @@ def initialize(connection):
     CREATE TABLE IF NOT EXISTS ct_users (
         id INTEGER PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
         role TEXT NOT NULL CHECK (role IN ('owner', 'technician')),
-        phone TEXT NOT NULL, password_hash TEXT NOT NULL
+        phone TEXT NOT NULL, password_hash TEXT NOT NULL, session_version INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS ct_registrations (
         email TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, phone TEXT NOT NULL,
         password_hash TEXT NOT NULL, code_hash TEXT NOT NULL, expires INTEGER NOT NULL,
         attempts INTEGER NOT NULL, resend_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS ct_password_resets (
+        user_id INTEGER PRIMARY KEY REFERENCES ct_users(id), code_hash TEXT NOT NULL,
+        expires INTEGER NOT NULL, attempts INTEGER NOT NULL, resend_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS ct_managed_devices (
         device_id TEXT PRIMARY KEY REFERENCES devices(device_id),
@@ -48,6 +52,11 @@ def initialize(connection):
         attempts INTEGER NOT NULL DEFAULT 0, delivered INTEGER NOT NULL DEFAULT 0
     );
     """)
+    connection.execute("BEGIN IMMEDIATE")
+    columns = {column[1] for column in connection.execute("PRAGMA table_info(ct_users)")}
+    if "session_version" not in columns:
+        connection.execute("ALTER TABLE ct_users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0")
+    connection.commit()
 
 
 class WerkzeugPasswords:
@@ -94,6 +103,45 @@ class SQLiteData:
     def user(self, user_id):
         return self.connection.execute("SELECT * FROM ct_users WHERE id = ?", (user_id,)).fetchone()
 
+    def update_profile(self, user_id, name, phone):
+        return self.connection.execute(
+            """UPDATE ct_users SET name=COALESCE(?, name), phone=COALESCE(?, phone)
+               WHERE id=? RETURNING id,email,role,name,phone""",
+            (name, phone, user_id),
+        ).fetchone()
+
+    def password_reset(self, user_id):
+        return self.connection.execute(
+            "SELECT code_hash,expires,attempts,resend_at FROM ct_password_resets WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+
+    def store_password_reset(self, user_id, digest, now):
+        self.connection.execute(
+            """INSERT INTO ct_password_resets(user_id,code_hash,expires,attempts,resend_at)
+               VALUES (?,?,?,5,?) ON CONFLICT(user_id) DO UPDATE SET
+               code_hash=excluded.code_hash, expires=excluded.expires, attempts=5, resend_at=excluded.resend_at""",
+            (user_id, digest, now + 600, now + 60),
+        )
+
+    def fail_password_reset(self, user_id):
+        self.connection.execute(
+            "UPDATE ct_password_resets SET attempts=attempts-1 WHERE user_id=?", (user_id,),
+        )
+
+    def complete_password_reset(self, user_id, password_hash):
+        self.connection.execute(
+            "UPDATE ct_users SET password_hash=?, session_version=session_version+1 WHERE id=?",
+            (password_hash, user_id),
+        )
+        self.connection.execute("DELETE FROM ct_password_resets WHERE user_id=?", (user_id,))
+
+    def clear_password_reset_mail(self, email, subject):
+        self.connection.execute(
+            "UPDATE ct_mail SET delivered=1, body='' WHERE recipient=? AND subject=? AND delivered=0",
+            (email, subject),
+        )
+
     def registration(self, email):
         return self.connection.execute("SELECT * FROM ct_registrations WHERE email = ?", (email,)).fetchone()
 
@@ -110,8 +158,9 @@ class SQLiteData:
             (email, name, role, phone, password_hash, digest, now + 600, now + 60),
         )
         self.connection.execute(
-            "UPDATE ct_mail SET delivered=1, body='' WHERE recipient=? AND expires IS NOT NULL AND delivered=0",
-            (email,),
+            """UPDATE ct_mail SET delivered=1, body='' WHERE recipient=? AND subject=?
+               AND expires IS NOT NULL AND delivered=0""",
+            (email, "Verificá tu cuenta de ColdTrack"),
         )
 
     def complete_registration(self, email):
@@ -122,8 +171,9 @@ class SQLiteData:
         )
         self.connection.execute("DELETE FROM ct_registrations WHERE email=?", (email,))
         self.connection.execute(
-            "UPDATE ct_mail SET delivered=1, body='' WHERE recipient=? AND expires IS NOT NULL AND delivered=0",
-            (email,),
+            """UPDATE ct_mail SET delivered=1, body='' WHERE recipient=? AND subject=?
+               AND expires IS NOT NULL AND delivered=0""",
+            (email, "Verificá tu cuenta de ColdTrack"),
         )
 
     def fail_registration_attempt(self, email):

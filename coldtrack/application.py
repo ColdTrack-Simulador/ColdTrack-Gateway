@@ -97,7 +97,12 @@ class Operations:
         with self.repository.transaction(write=False) as data:
             user = data.user_by_email(identifier.strip().lower())
         if user and self.passwords.verify(user["password_hash"], password):
-            return {"id": user["id"], "role": user["role"], "email": user["email"]}
+            return {
+                "id": user["id"],
+                "role": user["role"],
+                "email": user["email"],
+                "session_version": user["session_version"],
+            }
         return None
 
     def create_device(self, owner, payload):

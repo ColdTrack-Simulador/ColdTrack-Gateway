@@ -529,3 +529,11 @@ Para verificar el flujo completo:
    ```
 
 Si ambos cambios aparecen automáticamente en las dos terminales, el flujo está funcionando correctamente.
+
+### Perfil y recuperación de contraseña
+
+El propietario y el técnico autenticados consultan su cuenta con `GET /api/profile`. Devuelve `id`, `email`, `role`, `name` y `phone`. Con `PATCH /api/profile` pueden editar `name` y `phone`; enviar `{"phone":""}` borra el teléfono. Los datos de la sesión, el rol y el correo se mantienen.
+
+Para recuperar una contraseña, habilitá el registro y configurá el proceso de correo. Enviá `POST /api/password-reset` con `{"email":"propietario@example.com"}`. La respuesta `202` es genérica. Si la cuenta existe, el servicio pone en cola un código con vigencia de diez minutos y espera al menos 60 segundos entre envíos para esa cuenta. Después enviá `POST /api/password-reset/confirm` con `email`, `code` de seis dígitos y `password` de 12 a 256 caracteres. El éxito devuelve `204`, consume el código y revoca las sesiones de la cuenta. Un código inválido, vencido o agotado devuelve `400`. Las solicitudes están limitadas por IP y los códigos admiten cinco intentos.
+
+El primer arranque actualiza SQLite de forma idempotente. Las sesiones de cuentas emitidas antes de esta versión requieren un nuevo ingreso. Las credenciales del gateway y de la cuenta de demostración conservan su flujo.

@@ -12,6 +12,8 @@ from flasgger import Swagger
 from smtplib import SMTPException
 from werkzeug.security import check_password_hash
 
+from coldtrack.accounts import Accounts
+from coldtrack.accounts_http import create_accounts_blueprint
 from coldtrack.application import Operations, secret_digest
 from coldtrack.http import create_operations_blueprint
 from coldtrack.infrastructure import SQLiteRepository, WerkzeugPasswords
@@ -58,11 +60,14 @@ swagger = Swagger(
 )
 
 repository = SQLiteRepository(_connect)
-operations = Operations(repository, WerkzeugPasswords())
+passwords = WerkzeugPasswords()
+operations = Operations(repository, passwords)
+accounts = Accounts(repository, passwords)
 app.extensions["coldtrack_telemetry"] = TelemetryService(database)
 app.extensions["coldtrack_operations"] = operations
 app.register_blueprint(telemetry_bp)
 app.register_blueprint(create_operations_blueprint(operations, repository))
+app.register_blueprint(create_accounts_blueprint(accounts, repository))
 
 
 @app.get("/")
@@ -87,7 +92,13 @@ def require_api_credentials():
     if not request.path.startswith("/api/"):
         return
     g.account = session.get("account")
-    if request.endpoint in {"demo_session", "operations.register", "operations.verify"}:
+    if g.account and not accounts.session_version_matches(g.account, session.get("account_version")):
+        session.clear()
+        g.account = None
+    if request.endpoint in {
+        "demo_session", "operations.register", "operations.verify",
+        "accounts.request_reset", "accounts.confirm_reset",
+    }:
         return
     device_id = (request.view_args or {}).get("device_id")
     auth_required = protected or app.config["COLDTRACK_REGISTRATION_ENABLED"]
@@ -108,7 +119,7 @@ def require_api_credentials():
             if not managed and (not auth_required or legacy_token):
                 return
             return jsonify({"error": "Se requiere la clave del gateway."}), 401
-    if request.blueprint == "operations":
+    if request.blueprint in {"operations", "accounts"}:
         return
     if auth_required and not g.account and not (username and session.get("user") == username):
         return jsonify({"error": "Iniciá sesión para continuar."}), 401
@@ -147,6 +158,7 @@ def demo_session():
             return jsonify({"error": "Usuario o contraseña incorrectos."}), 401
         session.clear()
         if principal:
+            session["account_version"] = principal.pop("session_version")
             session["account"] = principal
         else:
             session["user"] = username
