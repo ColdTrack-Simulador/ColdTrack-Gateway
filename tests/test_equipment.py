@@ -22,6 +22,7 @@ def clients(tmp_path, monkeypatch):
     def signed_in(actor):
         client = apy.app.test_client()
         with client.session_transaction() as session:
+            session["account_version"] = 0
             session["account"] = {"id": actor, "role": "owner", "email": "test@example.test"}
         return client
 
@@ -71,3 +72,31 @@ def test_usage_and_policy_ack(clients):
     assert owner.get(base + "/policy").json["captureAck"]["applied"] is True
     assert owner.patch(base + "/policy", json={"enabled": False}).status_code == 200
     assert gateway.put(base + "/capture-ack", headers=headers, json=ack).status_code == 409
+
+def test_expired_pairing_cannot_create_a_device(clients):
+    owner = clients(1)
+    qr = owner.post("/api/devices/pairing", json={"name": "Cámara"}).json
+    with database._connect() as connection:
+        connection.execute("UPDATE ct_pairing SET expires=0")
+    assert owner.post("/api/devices/claim", json={"pairingCode": qr["pairingCode"]}).status_code == 404
+    assert owner.get("/api/devices").json["devices"] == []
+
+
+def test_gateway_ack_requires_matching_credential_and_current_revision(clients):
+    owner = clients(1)
+    first = owner.post("/api/devices", json={"name": "Primero"}).json
+    second = owner.post("/api/devices", json={"name": "Segundo"}).json
+    path = f"/api/devices/{first['deviceId']}"
+    gateway = apy.app.test_client()
+    policy = owner.get(f"{path}/policy").json
+    ack = {"revision": policy["revision"], "applied": False}
+    wrong = {"Authorization": "Bearer " + second["gatewayToken"]}
+    right = {"Authorization": "Bearer " + first["gatewayToken"]}
+    assert gateway.put(f"{path}/capture-ack", headers=wrong, json=ack).status_code == 401
+    assert gateway.put(f"{path}/capture-ack", headers=right, json={**ack, "applied": "false"}).status_code == 400
+    assert gateway.put(f"{path}/capture-ack", headers=right, json=ack).status_code == 204
+    result = owner.get(f"{path}/policy").json["captureAck"]
+    assert result["applied"] is False
+    assert datetime.fromisoformat(result["acknowledgedAt"]).utcoffset() == timedelta(0)
+    assert owner.patch(f"{path}/policy", json={"channels": ["invalid"]}).status_code == 400
+    assert owner.get(f"{path}/policy").json["revision"] == policy["revision"]
