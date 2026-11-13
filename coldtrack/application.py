@@ -184,16 +184,3 @@ class Operations:
             if not tech or tech["role"] != "technician":
                 raise UseCaseError("Técnico no encontrado.", 404)
             data.save_contact(owner, technician_id)
-
-    def request_review(self, owner, payload):
-        alert_id, technician = payload.get("alertId"), payload.get("technicianId")
-        if any(type(value) is not int or value <= 0 for value in (alert_id, technician)):
-            raise UseCaseError("Revisá los identificadores de alerta y técnico.")
-        notes = text(payload, "notes", 1500, minimum=0) if "notes" in payload else ""
-        with self.repository.transaction() as data:
-            alert = data.owned_alert(owner, alert_id)
-            contact = data.saved_technician(owner, technician)
-            if not alert or not contact:
-                raise UseCaseError("Alerta o contacto no encontrado.", 404)
-            description = alert["message"] or alert["title"]
-            return data.create_review(owner, technician, alert, contact["email"], description, notes)

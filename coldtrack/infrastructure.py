@@ -306,33 +306,6 @@ class SQLiteData:
                WHERE a.id=? AND d.owner_id=?""", (alert_id, owner)
         ).fetchone()
 
-    def create_review(self, owner, technician, alert, email, description, notes):
-        now = datetime.now(timezone.utc).isoformat()
-        result = self.connection.execute(
-            """INSERT INTO ct_reviews(owner_id,technician_id,alert_id,device_id,description,notes,created_at)
-               VALUES (?,?,?,?,?,?,?) ON CONFLICT(alert_id,technician_id) DO NOTHING""",
-            (owner, technician, alert["id"], alert["device_id"], description, notes, now),
-        )
-        review = self.connection.execute(
-            """SELECT id, alert_id AS alertId, device_id AS deviceId, technician_id AS technicianId,
-                      description, notes, created_at AS createdAt
-               FROM ct_reviews WHERE alert_id=? AND technician_id=?""", (alert["id"], technician)
-        ).fetchone()
-        if result.rowcount:
-            body = f"Equipo {alert['device_id']}\nSolicitud #{review['id']}\n\n{description}"
-            if notes:
-                body += f"\n\nNotas del propietario: {notes}"
-            self.queue_mail(email, "Nueva solicitud de revisión en ColdTrack", body)
-        return dict(review), bool(result.rowcount)
-
-    def reviews(self, actor):
-        return [dict(row) for row in self.connection.execute(
-            """SELECT id, alert_id AS alertId, device_id AS deviceId, technician_id AS technicianId,
-                      description, notes, created_at AS createdAt
-               FROM ct_reviews WHERE owner_id=? OR technician_id=? ORDER BY id DESC LIMIT 100""",
-            (actor, actor),
-        )]
-
     def queue_mail(self, recipient, subject, body, expires=None):
         self.connection.execute(
             "INSERT INTO ct_mail(recipient,subject,body,expires) VALUES (?,?,?,?)",

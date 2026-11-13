@@ -20,6 +20,9 @@ from coldtrack.infrastructure import SQLiteRepository, WerkzeugPasswords
 from coldtrack.assistant import create_assistant_blueprint
 from coldtrack.notifications import create_notifications_blueprint
 from coldtrack.openapi import configure_swagger
+from coldtrack.maintenance_application import Maintenance
+from coldtrack.maintenance_http import create_maintenance_blueprint
+from coldtrack.maintenance_infrastructure import SQLiteMaintenanceRepository
 from coldtrack.smtp import SMTPMailer
 from database import _connect, init_db
 from routes.telemetry import telemetry_bp
@@ -63,6 +66,7 @@ app.register_blueprint(create_notifications_blueprint(repository, operations))
 app.register_blueprint(create_assistant_blueprint())
 app.register_blueprint(create_operations_blueprint(operations, repository))
 app.register_blueprint(create_accounts_blueprint(accounts, repository))
+app.register_blueprint(create_maintenance_blueprint(Maintenance(SQLiteMaintenanceRepository(repository))))
 
 
 @app.get("/")
