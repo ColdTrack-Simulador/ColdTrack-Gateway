@@ -1,0 +1,382 @@
+{
+  "paths": {
+    "/api/devices/pairing": {
+      "post": {
+        "operationId": "createPairingCode",
+        "tags": [
+          "Equipos"
+        ],
+        "summary": "Crear código de vinculación",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "example": "Nombre de prueba"
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Código de uso único; puede representarse como QR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pairing"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          }
+        }
+      }
+    },
+    "/api/devices/claim": {
+      "post": {
+        "operationId": "claimDevice",
+        "tags": [
+          "Equipos"
+        ],
+        "summary": "Vincular equipo con el código",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "description": "Usar el código con la misma cuenta propietaria que lo generó.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "pairingCode": {
+                    "type": "string",
+                    "minLength": 32,
+                    "maxLength": 64
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "example": "Nombre de prueba"
+                  }
+                },
+                "required": [
+                  "pairingCode"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Equipo vinculado; token devuelto una vez",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        }
+      }
+    },
+    "/api/devices/{device_id}": {
+      "get": {
+        "operationId": "getDevice",
+        "tags": [
+          "Equipos"
+        ],
+        "summary": "Consultar un equipo propio",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "CT-001"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Detalle del equipo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        }
+      }
+    },
+    "/api/devices/{device_id}/usage": {
+      "get": {
+        "operationId": "getDeviceUsage",
+        "tags": [
+          "Equipos"
+        ],
+        "summary": "Consultar tiempo de uso del compresor",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "description": "La medición excluye huecos mayores a maxGapSeconds.",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "CT-001"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30,
+              "default": 7
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Segundos observados y segundos de uso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceUsage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        }
+      }
+    },
+    "/api/devices/{device_id}/capture-ack": {
+      "put": {
+        "operationId": "acknowledgeCapture",
+        "tags": [
+          "Equipos"
+        ],
+        "summary": "Confirmar aplicación de la política",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "description": "Usar la credencial del equipo y la revisión entregada por GET policy.",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "CT-001"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "revision": {
+                    "type": "string",
+                    "minLength": 64,
+                    "maxLength": 64
+                  },
+                  "applied": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "revision",
+                  "applied"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Confirmación guardada"
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "DeviceDetail": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "example": "Nombre de prueba"
+          },
+          "lastSeen": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "offline",
+              "online",
+              "stale"
+            ]
+          }
+        },
+        "required": [
+          "deviceId",
+          "name",
+          "lastSeen",
+          "status"
+        ]
+      },
+      "DeviceUsage": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string"
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30
+          },
+          "observedSeconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "runningSeconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxGapSeconds": {
+            "type": "integer",
+            "example": 120
+          }
+        },
+        "required": [
+          "deviceId",
+          "days",
+          "observedSeconds",
+          "runningSeconds",
+          "maxGapSeconds"
+        ]
+      },
+      "Pairing": {
+        "type": "object",
+        "properties": {
+          "pairingCode": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 64
+          },
+          "expiresIn": {
+            "type": "integer",
+            "example": 600
+          }
+        },
+        "required": [
+          "pairingCode",
+          "expiresIn"
+        ]
+      }
+    }
+  }
+}

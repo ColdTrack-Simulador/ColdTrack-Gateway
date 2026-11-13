@@ -378,7 +378,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Policy"
+                  "$ref": "#/components/schemas/CapturePolicyStatus"
                 }
               }
             }
@@ -1302,6 +1302,11 @@
               },
               "samplingActive": {
                 "type": "boolean"
+              },
+              "revision": {
+                "type": "string",
+                "minLength": 64,
+                "maxLength": 64
               }
             },
             "required": [
@@ -1345,6 +1350,68 @@
           "presionBaja": {
             "type": "number",
             "example": 28
+          },
+          "uptimeMs": {
+            "type": "number",
+            "nullable": true
+          },
+          "compresor": {
+            "type": "number",
+            "nullable": true
+          },
+          "fanSolicitado": {
+            "type": "number",
+            "nullable": true
+          },
+          "fanPWM": {
+            "type": "number",
+            "nullable": true
+          },
+          "fanRpm": {
+            "type": "number",
+            "nullable": true
+          },
+          "proteccionAlta": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "enum": [
+                  0,
+                  1
+                ]
+              }
+            ]
+          },
+          "proteccionBaja": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "enum": [
+                  0,
+                  1
+                ]
+              }
+            ]
+          },
+          "ordenParoCompresor": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "enum": [
+                  0,
+                  1
+                ]
+              }
+            ]
           }
         },
         "required": [
@@ -1397,6 +1464,38 @@
           },
           "samplingActive": {
             "type": "boolean"
+          },
+          "uptimeMs": {
+            "type": "number",
+            "nullable": true
+          },
+          "compresor": {
+            "type": "number",
+            "nullable": true
+          },
+          "fanSolicitado": {
+            "type": "number",
+            "nullable": true
+          },
+          "fanPWM": {
+            "type": "number",
+            "nullable": true
+          },
+          "fanRpm": {
+            "type": "number",
+            "nullable": true
+          },
+          "proteccionAlta": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "proteccionBaja": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "ordenParoCompresor": {
+            "type": "boolean",
+            "nullable": true
           }
         }
       },
@@ -1529,6 +1628,48 @@
             "type": "string"
           }
         }
+      },
+      "CapturePolicyStatus": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Policy"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "captureAck": {
+                "type": "object",
+                "nullable": true,
+                "properties": {
+                  "revision": {
+                    "type": "string",
+                    "minLength": 64,
+                    "maxLength": 64
+                  },
+                  "applied": {
+                    "type": "boolean"
+                  },
+                  "acknowledgedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "revision",
+                  "applied",
+                  "acknowledgedAt"
+                ]
+              },
+              "captureAckCurrent": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "captureAck",
+              "captureAckCurrent"
+            ]
+          }
+        ]
       }
     },
     "responses": {
