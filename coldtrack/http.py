@@ -94,6 +94,8 @@ def create_operations_blueprint(operations, repository):
 
     @bp.put("/api/technician-contacts/<int:technician_id>")
     def save_contact(technician_id):
+        if not 1 <= technician_id <= 2**63 - 1:
+            raise UseCaseError("Revisá el identificador del técnico.")
         operations.save_contact(actor("owner"), technician_id)
         return "", 204
 
@@ -109,6 +111,8 @@ def create_operations_blueprint(operations, repository):
     @bp.post("/api/mail/<int:mail_id>/ack")
     def acknowledge_mail(mail_id):
         require_mail_worker()
+        if not 1 <= mail_id <= 2**63 - 1:
+            raise UseCaseError("Revisá el identificador del correo.")
         data = payload()
         lease, sent = data.get("lease"), data.get("sent")
         if not isinstance(lease, str) or len(lease) > 64 or type(sent) is not bool:
