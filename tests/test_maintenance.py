@@ -185,3 +185,6 @@ def test_competing_state_changes_and_ratings_commit_only_once(participants):
     with apy.repository.transaction(write=False) as repo:
         count = repo.connection.execute("SELECT COUNT(*) FROM ct_maintenance_ratings").fetchone()[0]
     assert count == 1
+
+    database.delete_all_data()
+    assert owner.get("/api/maintenance-requests").json["items"] == []

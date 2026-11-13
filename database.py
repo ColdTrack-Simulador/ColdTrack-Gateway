@@ -521,6 +521,9 @@ def delete_all_data() -> None:
     init_db()
     with _connect() as connection:
         connection.execute("DELETE FROM events")
+        connection.execute("DELETE FROM ct_maintenance_ratings")
+        connection.execute("DELETE FROM ct_maintenance_history")
+        connection.execute("DELETE FROM ct_maintenance_requests")
         connection.execute("DELETE FROM ct_reviews")
         connection.execute("DELETE FROM ct_managed_devices")
         connection.execute("DELETE FROM alerts")
