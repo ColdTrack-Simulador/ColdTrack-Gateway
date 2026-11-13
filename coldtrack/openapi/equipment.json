@@ -348,7 +348,7 @@
           },
           "maxGapSeconds": {
             "type": "integer",
-            "example": 120
+            "example": 360
           }
         },
         "required": [
