@@ -92,18 +92,6 @@ def create_operations_blueprint(operations, repository):
         operations.save_contact(actor("owner"), technician_id)
         return "", 204
 
-    @bp.post("/api/reviews")
-    def create_review():
-        item, created = operations.request_review(actor("owner"), payload())
-        return jsonify(item), 201 if created else 200
-
-    @bp.get("/api/reviews")
-    def reviews():
-        principal = actor()
-        with repository.transaction(write=False) as data:
-            items = data.reviews(principal)
-        return jsonify({"items": items})
-
     @bp.post("/api/mail/claim")
     def claim_mail():
         require_mail_worker()

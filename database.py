@@ -6,6 +6,7 @@ import sqlite3
 from typing import Any, Callable
 
 from coldtrack.infrastructure import apply_managed_policy, initialize, sync_managed_alerts
+from coldtrack.maintenance_infrastructure import initialize_maintenance
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -199,6 +200,8 @@ def init_db() -> None:
             )
             """
         )
+
+        initialize_maintenance(connection)
 
     _migrate_legacy_telemetry_table()
 

@@ -15,6 +15,9 @@ from werkzeug.security import check_password_hash
 from coldtrack.application import Operations, secret_digest
 from coldtrack.http import create_operations_blueprint
 from coldtrack.infrastructure import SQLiteRepository, WerkzeugPasswords
+from coldtrack.maintenance_application import Maintenance
+from coldtrack.maintenance_http import create_maintenance_blueprint
+from coldtrack.maintenance_infrastructure import SQLiteMaintenanceRepository
 from coldtrack.smtp import SMTPMailer
 from database import _connect, init_db
 from routes.telemetry import telemetry_bp
@@ -63,6 +66,7 @@ app.extensions["coldtrack_telemetry"] = TelemetryService(database)
 app.extensions["coldtrack_operations"] = operations
 app.register_blueprint(telemetry_bp)
 app.register_blueprint(create_operations_blueprint(operations, repository))
+app.register_blueprint(create_maintenance_blueprint(Maintenance(SQLiteMaintenanceRepository(repository))))
 
 
 @app.get("/")
