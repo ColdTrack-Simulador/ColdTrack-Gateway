@@ -1,0 +1,23 @@
+name: Backend quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - codex/coldtrack-web
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m ruff check --select F,E9 .
+      - run: python -m pytest -q
