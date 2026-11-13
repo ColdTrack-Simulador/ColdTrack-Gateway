@@ -13,6 +13,7 @@ from smtplib import SMTPException
 from werkzeug.security import check_password_hash
 
 from coldtrack.application import Operations, secret_digest
+from coldtrack.assistant import create_assistant_blueprint
 from coldtrack.http import create_operations_blueprint
 from coldtrack.infrastructure import SQLiteRepository, WerkzeugPasswords
 from coldtrack.smtp import SMTPMailer
@@ -62,6 +63,7 @@ operations = Operations(repository, WerkzeugPasswords())
 app.extensions["coldtrack_telemetry"] = TelemetryService(database)
 app.extensions["coldtrack_operations"] = operations
 app.register_blueprint(telemetry_bp)
+app.register_blueprint(create_assistant_blueprint())
 app.register_blueprint(create_operations_blueprint(operations, repository))
 
 
