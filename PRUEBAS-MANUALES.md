@@ -30,7 +30,7 @@ Para verificar un alta o un restablecimiento, configurá SMTP y ejecutá `python
 | POST /api/devices/pairing | Enviar `{"name":"Cámara QR"}` | 201 con pairingCode y expiresIn; el código es el contenido que podrá representar el QR |
 | POST /api/devices/claim | Enviar `{"pairingCode":"CODIGO"}` como el mismo propietario | 200 con equipo y token. Reutilizarlo o usar otra cuenta da 404 |
 | GET /api/devices/{device_id} | Consultar el detalle antes y después de recibir una lectura | 200; estado offline, online o stale según hora de última lectura |
-| GET /api/devices/{device_id}/usage | Enviar days entre 1 y 30 | 200 con segundos observados y de compresor activo. Con dos muestras activas a 60 s se suman 60 s; los huecos mayores a 120 s quedan fuera |
+| GET /api/devices/{device_id}/usage | Enviar days entre 1 y 30 | 200 con segundos observados y de compresor activo. Con dos muestras activas a 60 s se suman 60 s; los huecos mayores a 360 s quedan fuera |
 | GET /api/devices/{device_id}/policy | Consultar con sesión propietaria o Bearer del dispositivo | 200 con horario UTC, samplingActive, revision, captureAck y captureAckCurrent |
 | PATCH /api/devices/{device_id}/policy | Enviar `{"enabled":false}`; luego `{"enabled":true,"channels":["tempInterior"],"schedule":[],"limits":{"tempInterior":{"max":5}}}` | 200. En pausa se rechaza la captura; al habilitarla solo se guarda el canal permitido |
 | PUT /api/devices/{device_id}/capture-ack | Con Bearer del gateway, enviar `{"revision":"REVISION","applied":true}` | 204. Sin token, 401; con revisión obsoleta, 409 |

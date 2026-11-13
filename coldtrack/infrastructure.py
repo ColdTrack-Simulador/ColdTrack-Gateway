@@ -249,7 +249,7 @@ class SQLiteData:
                 FROM readings WHERE compresor>=0 AND next_compressor>=0
             )
             SELECT coalesce(sum(seconds),0), coalesce(sum(CASE WHEN compresor>0 AND next_compressor>0
-                THEN seconds ELSE 0 END),0) FROM intervals WHERE seconds BETWEEN 0 AND 120.001""",
+                THEN seconds ELSE 0 END),0) FROM intervals WHERE seconds BETWEEN 0 AND 360.001""",
             (device_id, f"-{days} days"),
         ).fetchone()
         return row[0], row[1]
