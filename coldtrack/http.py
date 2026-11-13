@@ -67,7 +67,10 @@ def create_operations_blueprint(operations, repository):
             owner = actor("owner")
             if not device or device["owner_id"] != owner:
                 raise UseCaseError("Equipo no encontrado.", 404)
-        return jsonify(operations.policy_response(device["policy"]))
+        policy = operations.policy_response(device["policy"])
+        with repository.transaction(write=False) as data:
+            policy["captureAck"] = data.capture_ack(device_id)
+        return jsonify(policy)
 
     @bp.patch("/api/devices/<device_id>/policy")
     def update_policy(device_id):
