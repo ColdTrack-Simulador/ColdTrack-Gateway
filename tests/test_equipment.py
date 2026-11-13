@@ -53,16 +53,16 @@ def test_usage_and_policy_ack(clients):
     base = "/api/devices/" + device["deviceId"]
     assert clients(2).get(base + "/usage").status_code == 404
     assert owner.get(base + "/usage?days=31").status_code == 400
-    now = datetime.now(timezone.utc) - timedelta(minutes=10)
+    now = datetime.now(timezone.utc) - timedelta(minutes=20)
     with database._connect() as connection:
         connection.executemany(
             """INSERT INTO telemetry_readings(device_id,compresor,raw_payload,received_at)
                VALUES(?,?,'{}',?)""",
             [(device["deviceId"], value, (now + timedelta(seconds=offset)).isoformat())
-             for offset, value in [(0, 50), (60, 50), (120, 0), (500, 50)]],
+             for offset, value in [(0, 50), (300, 50), (360, 0), (730, 50)]],
         )
     usage = owner.get(base + "/usage").json
-    assert (usage["observedSeconds"], usage["runningSeconds"]) == (120, 60)
+    assert (usage["observedSeconds"], usage["runningSeconds"]) == (360, 300)
     gateway = apy.app.test_client()
     headers = {"Authorization": "Bearer " + device["gatewayToken"]}
     revision = gateway.get(base + "/policy", headers=headers).json["revision"]
