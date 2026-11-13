@@ -522,6 +522,11 @@ def delete_all_data() -> None:
     with _connect() as connection:
         connection.execute("DELETE FROM events")
         connection.execute("DELETE FROM ct_reviews")
+        connection.execute("DELETE FROM ct_maintenance_ratings")
+        connection.execute("DELETE FROM ct_maintenance_history")
+        connection.execute("DELETE FROM ct_maintenance_requests")
+        connection.execute("DELETE FROM ct_notification_preferences")
+        connection.execute("DELETE FROM ct_capture_ack")
         connection.execute("DELETE FROM ct_managed_devices")
         connection.execute("DELETE FROM alerts")
         connection.execute("DELETE FROM telemetry_readings")

@@ -562,3 +562,18 @@ El propietario y el técnico autenticados consultan su cuenta con `GET /api/prof
 Para recuperar una contraseña, habilitá el registro y configurá el proceso de correo. Enviá `POST /api/password-reset` con `{"email":"propietario@example.com"}`. La respuesta `202` es genérica. Si la cuenta existe, el servicio pone en cola un código con vigencia de diez minutos y espera al menos 60 segundos entre envíos para esa cuenta. Después enviá `POST /api/password-reset/confirm` con `email`, `code` de seis dígitos y `password` de 12 a 256 caracteres. El éxito devuelve `204`, consume el código y revoca las sesiones de la cuenta. Un código inválido, vencido o agotado devuelve `400`. Las solicitudes están limitadas por IP y los códigos admiten cinco intentos.
 
 El primer arranque actualiza SQLite de forma idempotente. Las sesiones de cuentas emitidas antes de esta versión requieren un nuevo ingreso. Las credenciales del gateway y de la cuenta de demostración conservan su flujo.
+
+
+## Funciones y verificación manual
+
+El inventario de métodos, ejemplos y resultados esperados está en [PRUEBAS-MANUALES.md](PRUEBAS-MANUALES.md). Swagger UI se sirve en `/apidocs/` y el contrato OpenAPI en `/apispec_1.json`. El login crea una cookie HttpOnly. Para las operaciones de gateway y worker de correo usá la credencial Bearer correspondiente.
+
+- Cuentas de propietario y técnico, edición de nombre y teléfono, y recuperación por correo. Las sesiones emitidas antes de incorporar su versionado deben iniciar sesión otra vez. El restablecimiento revoca las sesiones de la cuenta.
+- Alta manual y QR de aprovisionamiento emitido y canjeado por el mismo propietario. El código dura 10 minutos y se consume una vez. El frontend podrá representar ese código en un QR.
+- La captura puede pausarse por equipo, canal u horario. El gateway puede enviar su acuse junto con la revisión de la política. El acuse registra una declaración del dispositivo. El control físico requiere firmware compatible.
+- Las horas de funcionamiento se estiman entre muestras con estado conocido y separación de hasta 120 segundos. Las muestras archivadas con ambos extremos activos cuentan como tiempo de compresor activo.
+- Las preferencias de correo de alertas se guardan por equipo. Los códigos predefinidos se pueden silenciar por separado y el correo se puede desactivar en su conjunto. Las alertas quedan registradas.
+- Mantenimiento con alta manual o desde alertas, cambios de estado por rol, historial y reseña del propietario al cerrar. El contrato anterior de solicitudes por alerta permanece accesible en `/api/reviews`.
+- El asistente responde preguntas frecuentes de manera local. Las reglas de diagnóstico existentes siguen generando las alertas. El prototipo n8n/Gemini de diagnóstico asistido requiere validar casos y configurar sus servicios antes de integrarlo.
+
+Hacé una copia verificada de SQLite antes de desplegar. Si se vuelve temporalmente al backend anterior a mantenimiento, evitá nuevas escrituras de solicitudes hasta conciliar los IDs y datos entre versiones. Conservá la base actual para recuperar las operaciones posteriores a la copia.
