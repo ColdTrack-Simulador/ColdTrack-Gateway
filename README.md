@@ -1,5 +1,30 @@
 # ColdTrack Gateway
 
+## Swagger y comprobaciones locales
+
+La API publica Swagger UI en `/apidocs/` y el contrato OpenAPI 3.0.3 en
+`/apispec_1.json`. Abrí la interfaz en el mismo dominio que el backend para
+que las peticiones autenticadas reutilicen la cookie de `POST /api/session`.
+En desarrollo local por HTTP, configurá `COLDTRACK_ALLOW_HTTP=1` antes de
+iniciar Flask si utilizás autenticación. Para telemetría y procesamiento de
+correo, utilizá **Authorize** con la credencial Bearer de cada operación.
+
+Instalá las dependencias de desarrollo y ejecutá las comprobaciones:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m ruff check --select F,E9 .
+python -m pytest -q
+```
+
+El contrato principal está en `coldtrack/openapi/base.json`. Cada módulo puede
+agregar un archivo JSON en esa carpeta con `paths` y `components`. Para una ruta
+existente, agregá solamente métodos que aún no estén declarados. Para
+modificar el contrato de un método existente, actualizá su declaración.
+Las pruebas verifican el esquema y que todas las operaciones HTTP públicas
+estén documentadas.
+
+
 ## Cuentas, sensores y atención técnica
 
 Las reglas de diagnóstico y horarios están en `coldtrack/domain.py`.

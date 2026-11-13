@@ -8,7 +8,6 @@ from pathlib import Path
 
 import click
 from flask import Flask, g, jsonify, redirect, request, send_from_directory, session, url_for
-from flasgger import Swagger
 from smtplib import SMTPException
 from werkzeug.security import check_password_hash
 
@@ -18,6 +17,7 @@ from coldtrack.application import Operations, secret_digest
 from coldtrack.equipment_http import create_equipment_blueprint
 from coldtrack.http import create_operations_blueprint
 from coldtrack.infrastructure import SQLiteRepository, WerkzeugPasswords
+from coldtrack.openapi import configure_swagger
 from coldtrack.smtp import SMTPMailer
 from database import _connect, init_db
 from routes.telemetry import telemetry_bp
@@ -47,18 +47,7 @@ if protected and not all((username, password_hash, app.secret_key, ingest_key)):
 
 init_db()
 
-swagger = Swagger(
-    app,
-    template={
-        "swagger": "2.0",
-        "info": {
-            "title": "ColdTrack API",
-            "description": "API para monitoreo y telemetría de equipos ColdTrack.",
-            "version": "1.3.0",
-        },
-        "basePath": "/",
-    },
-)
+configure_swagger(app)
 
 repository = SQLiteRepository(_connect)
 passwords = WerkzeugPasswords()

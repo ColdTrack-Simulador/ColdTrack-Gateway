@@ -19,22 +19,6 @@ def _error_response(message: str, status_code: int, **extra):
 
 @telemetry_bp.get("/health")
 def health():
-    """
-    Health check
-    ---
-    tags:
-      - System
-    responses:
-      200:
-        description: API health status
-        examples:
-          application/json:
-            service: ColdTrack API
-            status: ok
-            version: 1.3.0
-            storage: sqlite
-            architecture: layered
-    """
     return jsonify(
         {
             "service": "ColdTrack API",
@@ -48,42 +32,6 @@ def health():
 
 @telemetry_bp.post("/api/telemetry")
 def recibir_telemetria():
-    """
-    Receive telemetry payload
-    ---
-    tags:
-      - Telemetry
-    consumes:
-      - application/json
-    parameters:
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - deviceId
-            - estado
-            - diagnostico
-          properties:
-            deviceId:
-              type: string
-              example: CT-001
-            estado:
-              type: string
-              example: NORMAL
-            diagnostico:
-              type: string
-              example: SIN_FALLAS
-            tempInterior:
-              type: number
-              example: 21.4
-    responses:
-      201:
-        description: Telemetry received successfully
-      400:
-        description: Invalid request payload
-    """
     if not request.is_json:
         return _error_response("El cuerpo debe ser JSON.", 415)
 
@@ -135,25 +83,6 @@ def alertas_dispositivo(device_id):
 
 @telemetry_bp.get("/api/telemetry")
 def listar_telemetria():
-    """
-    List telemetry readings
-    ---
-    tags:
-      - Telemetry
-    parameters:
-      - in: query
-        name: deviceId
-        type: string
-        required: false
-      - in: query
-        name: limit
-        type: integer
-        required: false
-        default: 50
-    responses:
-      200:
-        description: Telemetry readings list
-    """
     device_id = request.args.get("deviceId")
     raw_limit = request.args.get("limit", default="50")
 
@@ -171,37 +100,12 @@ def listar_telemetria():
 
 @telemetry_bp.get("/api/devices")
 def listar_dispositivos():
-    """
-    List devices and their latest state
-    ---
-    tags:
-      - Devices
-    responses:
-      200:
-        description: Device list
-    """
     dispositivos = telemetry().fetch_devices(owner_id=(g.get("account") or {}).get("id"))
     return jsonify({"count": len(dispositivos), "devices": dispositivos}), 200
 
 
 @telemetry_bp.get("/api/telemetry/latest/<device_id>")
 def ultima_telemetria(device_id):
-    """
-    Get latest telemetry for a device
-    ---
-    tags:
-      - Telemetry
-    parameters:
-      - in: path
-        name: device_id
-        type: string
-        required: true
-    responses:
-      200:
-        description: Latest telemetry for the requested device
-      404:
-        description: No telemetry exists for the requested device
-    """
     lectura = telemetry().fetch_latest_telemetry(device_id)
     if lectura is None:
         return _error_response("No existen lecturas para el dispositivo.", 404, deviceId=device_id)
