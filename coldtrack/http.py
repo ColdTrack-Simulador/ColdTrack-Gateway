@@ -70,6 +70,8 @@ def create_operations_blueprint(operations, repository):
         policy = operations.policy_response(device["policy"])
         with repository.transaction(write=False) as data:
             policy["captureAck"] = data.capture_ack(device_id)
+        ack = policy["captureAck"]
+        policy["captureAckCurrent"] = bool(ack and ack["revision"] == policy["revision"])
         return jsonify(policy)
 
     @bp.patch("/api/devices/<device_id>/policy")
