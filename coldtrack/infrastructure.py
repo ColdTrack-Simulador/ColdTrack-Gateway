@@ -6,7 +6,8 @@ from time import time
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from coldtrack.domain import CHANNELS, diagnose, sampling_active
+from coldtrack.application import Operations
+from coldtrack.domain import CHANNELS, DEFAULT_LIMITS, diagnose, sampling_active
 
 
 def initialize(connection):
@@ -35,6 +36,15 @@ def initialize(connection):
         policy TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS ct_devices_owner ON ct_managed_devices(owner_id);
+    CREATE TABLE IF NOT EXISTS ct_pairing (
+        digest TEXT PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES ct_users(id),
+        name TEXT NOT NULL, expires INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ct_pairing_expiry ON ct_pairing(expires);
+    CREATE TABLE IF NOT EXISTS ct_capture_ack (
+        device_id TEXT PRIMARY KEY REFERENCES ct_managed_devices(device_id),
+        revision TEXT NOT NULL, applied INTEGER NOT NULL, acknowledged_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS ct_contacts (
         owner_id INTEGER REFERENCES ct_users(id), technician_id INTEGER REFERENCES ct_users(id),
         PRIMARY KEY (owner_id, technician_id)
@@ -196,6 +206,67 @@ class SQLiteData:
         self.connection.execute(
             "UPDATE ct_managed_devices SET policy=? WHERE device_id=?", (json.dumps(policy), device_id)
         )
+
+    def save_pairing(self, owner, name, digest, expires):
+        self.connection.execute("DELETE FROM ct_pairing WHERE expires<=?", (int(time()),))
+        self.connection.execute("INSERT INTO ct_pairing VALUES (?,?,?,?)", (digest, owner, name, expires))
+
+    def claim_pairing(self, digest, owner, name, token_hash, now):
+        row = self.connection.execute(
+            "SELECT name FROM ct_pairing WHERE digest=? AND owner_id=? AND expires>?", (digest, owner, now)
+        ).fetchone()
+        if row is None:
+            return None
+        device_id = "CT-" + token_urlsafe(12)
+        label = name or row["name"]
+        self.create_device(owner, device_id, label, token_hash, DEFAULT_LIMITS)
+        self.connection.execute("DELETE FROM ct_pairing WHERE digest=?", (digest,))
+        return {"deviceId": device_id, "name": label}
+
+    def equipment_detail(self, owner, device_id):
+        row = self.connection.execute(
+            """SELECT d.device_id AS deviceId, d.name, d.last_seen AS lastSeen
+               FROM devices d JOIN ct_managed_devices m USING(device_id)
+               WHERE d.device_id=? AND m.owner_id=?""", (device_id, owner)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def equipment_usage(self, device_id, days):
+        row = self.connection.execute(
+            """WITH readings AS (
+                SELECT julianday(received_at) AS observed_at, compresor,
+                       lead(julianday(received_at)) OVER w AS next_at,
+                       lead(compresor) OVER w AS next_compressor
+                FROM telemetry_readings
+                WHERE device_id=? AND received_at>=strftime('%Y-%m-%dT%H:%M:%f+00:00','now',?)
+                WINDOW w AS (ORDER BY received_at, id)
+            ), intervals AS (
+                SELECT (next_at-observed_at)*86400 AS seconds, compresor, next_compressor
+                FROM readings WHERE compresor>=0 AND next_compressor>=0
+            )
+            SELECT coalesce(sum(seconds),0), coalesce(sum(CASE WHEN compresor>0 AND next_compressor>0
+                THEN seconds ELSE 0 END),0) FROM intervals WHERE seconds BETWEEN 0 AND 120.001""",
+            (device_id, f"-{days} days"),
+        ).fetchone()
+        return row[0], row[1]
+
+    def record_capture_ack(self, device_id, revision, enabled):
+        device = self.device(device_id)
+        if not device or Operations.policy_response(device["policy"])["revision"] != revision:
+            return False
+        self.connection.execute(
+            """INSERT INTO ct_capture_ack VALUES (?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET
+               revision=excluded.revision, applied=excluded.applied, acknowledged_at=excluded.acknowledged_at""",
+            (device_id, revision, enabled, datetime.now(timezone.utc).isoformat()),
+        )
+        return True
+
+    def capture_ack(self, device_id):
+        row = self.connection.execute(
+            """SELECT revision, applied, acknowledged_at AS acknowledgedAt
+               FROM ct_capture_ack WHERE device_id=?""", (device_id,)
+        ).fetchone()
+        return {**dict(row), "applied": bool(row["applied"])} if row else None
 
     def technicians(self, owner, contacts_only):
         query = """SELECT u.id, u.name, u.email, u.phone FROM ct_users u

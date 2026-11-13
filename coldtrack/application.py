@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from hashlib import sha256
 from hmac import compare_digest, new as hmac_digest
+from json import dumps
 from math import isfinite
 from re import fullmatch
 from secrets import randbelow, token_urlsafe
@@ -127,7 +128,7 @@ class Operations:
             raise UseCaseError("enabled debe ser booleano.")
         if "channels" in payload:
             channels = payload["channels"]
-            if not isinstance(channels, list) or any(channel not in CHANNELS for channel in channels):
+            if not isinstance(channels, list) or any(not isinstance(channel, str) or channel not in CHANNELS for channel in channels):
                 raise UseCaseError("Revisá los canales de medición.")
             payload["channels"] = list(dict.fromkeys(channels))
         if "schedule" in payload:
@@ -170,8 +171,10 @@ class Operations:
 
         schedule = [{"day": window["day"], "start": hhmm(window["start"]), "end": hhmm(window["end"])}
                     for window in policy["schedule"]]
+        sampling = active and bool(policy["channels"])
+        revision = secret_digest(dumps([policy, sampling], sort_keys=True))
         return {**policy, "schedule": schedule, "timezone": "UTC",
-                "samplingActive": active and bool(policy["channels"])}
+                "samplingActive": sampling, "revision": revision}
 
     def save_contact(self, owner, technician_id):
         if type(technician_id) is not int or technician_id <= 0:

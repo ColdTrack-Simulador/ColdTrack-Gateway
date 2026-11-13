@@ -15,6 +15,7 @@ from werkzeug.security import check_password_hash
 from coldtrack.accounts import Accounts
 from coldtrack.accounts_http import create_accounts_blueprint
 from coldtrack.application import Operations, secret_digest
+from coldtrack.equipment_http import create_equipment_blueprint
 from coldtrack.http import create_operations_blueprint
 from coldtrack.infrastructure import SQLiteRepository, WerkzeugPasswords
 from coldtrack.smtp import SMTPMailer
@@ -65,6 +66,7 @@ operations = Operations(repository, passwords)
 accounts = Accounts(repository, passwords)
 app.extensions["coldtrack_telemetry"] = TelemetryService(database)
 app.extensions["coldtrack_operations"] = operations
+app.register_blueprint(create_equipment_blueprint(repository))
 app.register_blueprint(telemetry_bp)
 app.register_blueprint(create_operations_blueprint(operations, repository))
 app.register_blueprint(create_accounts_blueprint(accounts, repository))
@@ -103,7 +105,7 @@ def require_api_credentials():
     device_id = (request.view_args or {}).get("device_id")
     auth_required = protected or app.config["COLDTRACK_REGISTRATION_ENABLED"]
     ingest = request.method == "POST" and request.path == "/api/telemetry"
-    if ingest or request.endpoint == "operations.read_policy":
+    if ingest or request.endpoint in {"operations.read_policy", "equipment.capture_ack"}:
         scheme, _, token = request.headers.get("Authorization", "").partition(" ")
         if ingest:
             payload = request.get_json(silent=True)
@@ -119,7 +121,7 @@ def require_api_credentials():
             if not managed and (not auth_required or legacy_token):
                 return
             return jsonify({"error": "Se requiere la clave del gateway."}), 401
-    if request.blueprint in {"operations", "accounts"}:
+    if request.blueprint in {"operations", "accounts", "equipment"}:
         return
     if auth_required and not g.account and not (username and session.get("user") == username):
         return jsonify({"error": "Iniciá sesión para continuar."}), 401
