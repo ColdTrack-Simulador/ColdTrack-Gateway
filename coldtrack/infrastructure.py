@@ -31,6 +31,10 @@ def initialize(connection):
         policy TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS ct_devices_owner ON ct_managed_devices(owner_id);
+    CREATE TABLE IF NOT EXISTS ct_notification_preferences (
+        device_id TEXT PRIMARY KEY REFERENCES ct_managed_devices(device_id),
+        preferences TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS ct_contacts (
         owner_id INTEGER REFERENCES ct_users(id), technician_id INTEGER REFERENCES ct_users(id),
         PRIMARY KEY (owner_id, technician_id)
@@ -145,6 +149,18 @@ class SQLiteData:
     def update_policy(self, device_id, policy):
         self.connection.execute(
             "UPDATE ct_managed_devices SET policy=? WHERE device_id=?", (json.dumps(policy), device_id)
+        )
+
+    def notification_preferences(self, device_id):
+        row = self.connection.execute(
+            "SELECT preferences FROM ct_notification_preferences WHERE device_id=?", (device_id,)
+        ).fetchone()
+        return json.loads(row[0]) if row else {"emailEnabled": True, "mutedCodes": []}
+
+    def save_notification_preferences(self, device_id, preferences):
+        self.connection.execute(
+            """INSERT INTO ct_notification_preferences VALUES (?,?) ON CONFLICT(device_id)
+               DO UPDATE SET preferences=excluded.preferences""", (device_id, json.dumps(preferences))
         )
 
     def technicians(self, owner, contacts_only):
@@ -280,12 +296,15 @@ def sync_managed_alerts(connection, record):
         """SELECT u.email FROM ct_managed_devices d JOIN ct_users u ON u.id=d.owner_id
            WHERE d.device_id=?""", (device_id,)
     ).fetchone()
+    data = SQLiteData(connection)
+    preferences = data.notification_preferences(device_id)
     for code, description in findings.items():
         connection.execute(
             """INSERT INTO alerts(device_id, alert_type, severity, title, message, created_at)
                VALUES (?,?,?,?,?,?)""", (device_id, code, record["severity"], code, description, received_at),
         )
-        SQLiteData(connection).queue_mail(
-            owner["email"], f"Alerta ColdTrack · {device_id}",
-            f"Equipo {device_id}\n{received_at}\n\n{description}",
-        )
+        if preferences["emailEnabled"] and code not in preferences["mutedCodes"]:
+            data.queue_mail(
+                owner["email"], f"Alerta ColdTrack · {device_id}",
+                f"Equipo {device_id}\n{received_at}\n\n{description}",
+            )
